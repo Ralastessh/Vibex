@@ -71,15 +71,15 @@ iPad                     Tailscale          iMac
 | 영역 | 사용 |
 |---|---|
 | iPad 앱 | SwiftUI · PencilKit (iPadOS 17+) |
-| Desktop Bridge | Python 3.12+ · FastAPI · SQLite |
-| 그림 해석 | OpenAI Vision (structured outputs) |
+| PC와 태블릿PC 간 연결 소스 | Python 3.12+ · FastAPI · SQLite |
+| 그림 해석 | OpenAI GPT-5 |
 | 코드 수정 | Claude Code CLI |
 | 원격 연결 | Tailscale |
 
 ```
-bridge/          Desktop Bridge — 파이썬 33개 파일, 테스트 161개
-ipad-app/        iPad 앱 — Swift 17개 파일
-docs/            CLI 실측 검증 기록
+src/             PC와 태블릿PC 간 연결 오픈소스
+ipad-app/        iPad 앱 — Swift 파일
+docs/            개발 계획 및 검증 기록
 protocol/        예제 스케치 이미지
 examples/        데모용 React 로그인 화면
 scripts/         실행·샘플 생성 스크립트
