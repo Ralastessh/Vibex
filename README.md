@@ -33,6 +33,37 @@ iPad                     Tailscale          iMac
 결과 · 질문
 ```
 
+```
+┌────────────────────────────┐
+│ iPad App                    │
+│ SwiftUI + PencilKit         │
+│ URLSession + WebSocket      │
+└──────────────┬──────────────┘
+               │
+        Tailscale Network
+               │
+┌──────────────▼──────────────┐
+│ PC Bridge                   │
+│ FastAPI                     │
+│                             │
+│ POST /tasks                 │
+│ GET /projects               │
+│ WS /tasks/{id}/events       │
+│                             │
+│ Project Registry            │
+│ Session Resolver            │
+│ Claude Code Adapter         │
+└──────────────┬──────────────┘
+               │
+       subprocess / CLI --- 필요시 VSCode Extension 추가
+               │
+┌──────────────▼──────────────┐
+│ Claude Code CLI             │
+│ Existing Repository         │
+│ Existing Session            │
+└─────────────────────────────┘
+```
+
 ### 다섯 단계
 
 1. **그리기** — 현재 화면 스크린샷 위에 화살표·동그라미·손글씨로 수정 의도를 표시
