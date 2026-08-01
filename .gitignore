@@ -1,0 +1,25 @@
+# CLAUDE.md §18 — 비밀키와 로컬 설정은 저장소에 넣지 않는다
+.env
+projects.local.json
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Swift / Xcode
+ipad-app/**/xcuserdata/
+ipad-app/**/*.xcuserstate
+ipad-app/**/DerivedData/
+.build/
+
+# macOS
+.DS_Store
+
+# Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋한다)
+*.xcworkspace/xcuserdata/
+ipad-app/**/xcuserdata/

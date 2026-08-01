@@ -1,7 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -10,23 +9,20 @@ ENV_FILES = (REPO_ROOT / ".env", Path(".env"))
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="BRIDGE_", env_file=ENV_FILES, extra="ignore"
-    )
-    # iPad의 기기 토큰
+        env_prefix="BRIDGE_", env_file=ENV_FILES, extra="ignore")
+    # 기기 토큰
     device_token: str = ""
     projects_file: Path = REPO_ROOT / "projects.local.json"
     workspace_root: Path | None = None
-
-    database_path: Path = REPO_ROOT / "bridge.db"
-    # TODO: Claude Code로 테스트, 추후에 타 모델로까지 확장 예정
+    # 향후 다양한 모델 지원 예정
     claude_binary: str = "claude"
     agent_timeout_seconds: float = 1800.0
-    # API 키는 .env에만 포함
+    # API 키는 숨기기
     openai_api_key: str = ""
     vision_model: str = "gpt-5.5"
     vision_timeout_seconds: float = 120.0
     max_budget_usd: float = 2.0
-    # 고해상도 이미지는 불필요한 토큰을 낭비할 수 있기에 상한 제한
+    # 고해상도 이미지로 불필요한 토큰 낭비를 방지
     max_image_bytes: int = 10 * 1024 * 1024
 
     def require_device_token(self) -> str:
