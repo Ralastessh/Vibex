@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import re
 from pydantic import BaseModel, Field, ValidationError
-from backend.src.tasks.models import ChangedFile, Question, TestResult
+from src.tasks.models import ChangedFile, Question, TestResult
 
 FENCE = "bridge"
 
@@ -46,6 +46,10 @@ class AgentReport(BaseModel):
 
 class ContractError(ValueError):
     """에이전트가 계약을 지키지 않을 때 결과를 지어내지 않고 실패로 처리"""
+
+def without_block(result_text: str) -> str:
+    return _BLOCK.sub("", result_text or "").strip()
+
 
 def extract(result_text: str) -> AgentReport:
     blocks = _BLOCK.findall(result_text or "")

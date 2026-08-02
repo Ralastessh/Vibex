@@ -1,7 +1,6 @@
 from __future__ import annotations
-from backend.src.agents.contract import OUTPUT_CONTRACT
+from src.agents.contract import OUTPUT_CONTRACT
 
-#: §10의 제약 목록. 순서와 표현을 명세에 맞춘다.
 CONSTRAINTS = (
     "기존 프로젝트 구조를 유지한다.",
     "기존 디자인 시스템과 컴포넌트를 우선 사용한다.",

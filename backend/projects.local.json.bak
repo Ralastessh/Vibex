@@ -1,0 +1,26 @@
+{
+  "projects": [
+    {
+      "projectId": "demo",
+      "displayName": "Demo React App",
+      "repoPath": "/private/tmp/claude-501/-Users-kimjoonsu-Desktop-oss/4b076ca9-2ba7-4db3-aeff-1a90c54c4332/scratchpad/probe-repo",
+      "enabled": true,
+      "agent": "claude-code",
+      "testCommands": ["npx vitest"]
+    },
+    {
+      "projectId": "bridge",
+      "displayName": "Cross-Device CLI Bridge",
+      "repoPath": "/Users/kimjoonsu/Desktop/oss",
+      "enabled": true,
+      "agent": "claude-code",
+      "testCommands": ["python -m pytest"]
+    },
+    {
+      "projectId": "nogit",
+      "displayName": "Git 아님",
+      "repoPath": "/Users/kimjoonsu/Desktop/oss/examples/demo-react-app",
+      "enabled": true
+    }
+  ]
+}

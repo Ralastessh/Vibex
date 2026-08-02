@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, Field
-from backend.src.agents.contract import AgentReport
+from src.agents.contract import AgentReport
 
 class AgentRunResult(BaseModel):
     session_id: str | None = None
