@@ -1,159 +1,319 @@
 import Foundation
 
-// Bridge REST 클라이언트. 모든 요청에 Authorization: Bearer <token>.
-struct BridgeClient {
-    var config: AppConfig
-    var session: URLSession = .shared
+// MARK: - 서버 응답 모델
+//
+// 필드 이름은 백엔드(`backend/src/api/*.py`, `tasks/models.py`)의 alias를 그대로
+// 따른다. 여기서 이름을 바꾸면 계약이 두 벌이 된다.
 
-    enum BridgeError: LocalizedError {
-        case notConfigured
-        case badURL
-        case http(status: Int, detail: String)
-        case decoding(String)
+enum TaskStatus: String, Decodable {
+    case queued, interpreting
+    case awaitingConfirmation = "awaiting_confirmation"
+    case resolvingSession = "resolving_session"
+    case runningAgent = "running_agent"
+    case testing, completed, failed, cancelled
 
-        var errorDescription: String? {
-            switch self {
-            case .notConfigured: return "연결 설정(주소·토큰)이 필요합니다."
-            case .badURL: return "서버 주소가 올바르지 않습니다."
-            case let .http(status, detail): return "요청 실패 (\(status)): \(detail)"
-            case let .decoding(msg): return "응답 해석 실패: \(msg)"
-            }
+    /// 아직 끝나지 않은 상태.
+    var isActive: Bool {
+        switch self {
+        case .completed, .failed, .cancelled: return false
+        default: return true
         }
     }
+}
 
-    // MARK: - 공개 API
+struct TaskCreated: Decodable {
+    let taskId: String
+    let status: TaskStatus
+}
 
-    func listProjects() async throws -> [Project] {
-        try await get("/projects", as: ProjectListResponse.self).projects
+struct ProjectView: Decodable, Identifiable {
+    enum Status: String, Decodable { case idle, busy, unavailable }
+
+    let projectId: String
+    let displayName: String
+    let status: Status
+    let activeTaskId: String?
+    let reason: String?
+
+    var id: String { projectId }
+}
+
+struct ChangedFile: Decodable { let path: String; let summary: String }
+struct TestResult: Decodable { let command: String; let status: String; let summary: String }
+struct QuestionOption: Decodable, Identifiable {
+    let optionId: String
+    let label: String
+    var id: String { optionId }
+}
+struct Question: Decodable, Identifiable {
+    let questionId: String
+    let text: String
+    let options: [QuestionOption]
+    var id: String { questionId }
+}
+
+/// 승인 화면이 보여줄 해석 결과. 서버의 `ProjectCommand` 중 화면에 필요한 것만.
+struct Interpretation: Decodable {
+    struct Change: Decodable {
+        let operation: String
+        let target: String
+        let description: String
+        let confidence: Double
+    }
+    let summary: String
+    let changes: [Change]
+    let questions: [String]
+    let overallConfidence: Double
+}
+
+struct TaskView: Decodable {
+    let taskId: String
+    let projectId: String
+    let status: TaskStatus
+    let sessionId: String?
+    let interpretation: Interpretation?
+    let summary: String?
+    /// 에이전트가 사람에게 한 말. summary는 한 문장뿐이라 자세한 설명은 여기 있다.
+    let agentReply: String?
+    let changedFiles: [ChangedFile]
+    let testResults: [TestResult]
+    let questions: [Question]
+    let warnings: [String]
+    let error: String?
+}
+
+// MARK: - 오류
+
+/// 서버가 주는 안내 문구를 그대로 살린다. 백엔드가 이미 한국어로 상황별 문구를
+/// 내려주므로, 여기서 다시 지어내면 사용자만 헷갈린다.
+struct BridgeError: LocalizedError {
+    let message: String
+    let statusCode: Int?
+
+    var errorDescription: String? { message }
+
+    static func network(_ error: Error) -> BridgeError {
+        let message: String
+        switch (error as? URLError)?.code {
+        case .some(.cannotConnectToHost), .some(.cannotFindHost):
+            message = "iMac에 연결할 수 없습니다. 브리지 서버가 켜져 있는지 확인해 주세요."
+        case .some(.notConnectedToInternet), .some(.networkConnectionLost):
+            message = "네트워크 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요."
+        case .some(.timedOut):
+            message = "iMac이 응답하지 않습니다."
+        case .some(.appTransportSecurityRequiresSecureConnection):
+            message = "평문 HTTP 연결이 차단되었습니다. Info.plist의 ATS 설정을 확인해 주세요."
+        default:
+            message = error.localizedDescription
+        }
+        return BridgeError(message: message, statusCode: nil)
+    }
+}
+
+private struct ErrorDetail: Decodable { let detail: String? }
+
+// MARK: - 클라이언트
+
+/// iMac의 Desktop Bridge와 통신한다.
+///
+/// 주소와 토큰의 영구 저장(Keychain)은 연결 설정 화면의 몫이다. 여기서는 값을
+/// 받아 쓰기만 한다.
+struct BridgeClient {
+    let baseURL: URL
+    let deviceToken: String
+    var session: URLSession = .shared
+
+    private static let prefix = "api/v1"
+
+    // MARK: 프로젝트
+
+    func listProjects() async throws -> [ProjectView] {
+        struct Response: Decodable { let projects: [ProjectView] }
+        return try await send(request(path: "projects"), as: Response.self).projects
     }
 
-    /// 스크린샷 위 주석을 제출한다. 획(canvasImage)과 원본(baseImage)을 분리해 보낸다.
-    func submitDrawing(
+    // MARK: 작업
+
+    /// 그림을 보낸다.
+    ///
+    /// - Parameters:
+    ///   - snapshot: `CanvasComposer.snapshot(...)`의 결과. 획과 배경을 **따로**
+    ///     보낸다 — 서버는 획이 배경 위에 겹쳐진 것으로 보고 해석한다.
+    ///   - clientTaskId: 재전송해도 작업이 중복 생성되지 않게 하는 열쇠.
+    ///     같은 그림을 다시 보낼 땐 **같은 값**을 유지해야 한다.
+    func createTask(
         projectId: String,
-        canvasImage: Data,
-        baseImage: Data,
-        clientTaskId: String? = nil
+        snapshot: CanvasComposer.Snapshot,
+        typedNote: String? = nil,
+        clientTaskId: String
     ) async throws -> TaskCreated {
-        var fields: [String: String] = ["projectId": projectId, "mode": "sketch"]
-        if let clientTaskId { fields["clientTaskId"] = clientTaskId }
-        let files = [
-            MultipartFile(field: "canvasImage", filename: "canvas.png", mime: "image/png", data: canvasImage),
-            MultipartFile(field: "baseImage", filename: "base.png", mime: "image/png", data: baseImage),
-        ]
-        return try await upload("/tasks", fields: fields, files: files, as: TaskCreated.self)
+        var fields = ["projectId": projectId, "clientTaskId": clientTaskId]
+        if let typedNote, !typedNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fields["typedNote"] = typedNote
+        }
+
+        var files = [(name: "canvasImage", payload: snapshot.canvas)]
+        if let base = snapshot.base {
+            files.append((name: "baseImage", payload: base))
+        }
+
+        let (body, contentType) = Self.multipartBody(fields: fields, files: files)
+        var req = request(path: "tasks", method: "POST")
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        return try await send(req, as: TaskCreated.self)
     }
 
-    func getTask(_ taskId: String) async throws -> AgentTask {
-        try await get("/tasks/\(taskId)", as: AgentTask.self)
+    /// 텍스트만 보낸다(그림 없이).
+    func createTask(
+        projectId: String, typedNote: String, clientTaskId: String
+    ) async throws -> TaskCreated {
+        let (body, contentType) = Self.multipartBody(
+            fields: [
+                "projectId": projectId,
+                "clientTaskId": clientTaskId,
+                "typedNote": typedNote,
+            ],
+            files: []
+        )
+        var req = request(path: "tasks", method: "POST")
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        return try await send(req, as: TaskCreated.self)
     }
 
-    func listTasks(projectId: String, limit: Int = 30) async throws -> [Task] {
-        try await get("/tasks?projectId=\(projectId)&limit=\(limit)", as: TaskListResponse.self).tasks
+    func task(_ taskId: String) async throws -> TaskView {
+        try await send(request(path: "tasks/\(taskId)"), as: TaskView.self)
     }
 
-    func confirm(taskId: String, approved: Bool) async throws -> TaskCreated {
-        try await postJSON("/tasks/\(taskId)/confirm", body: ["approved": approved], as: TaskCreated.self)
+    func tasks(projectId: String, limit: Int = 30) async throws -> [TaskView] {
+        struct Response: Decodable { let tasks: [TaskView] }
+        let req = request(path: "tasks", query: [
+            URLQueryItem(name: "projectId", value: projectId),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ])
+        return try await send(req, as: Response.self).tasks
     }
 
+    /// 해석 결과 승인 / 거부.
+    func confirm(_ taskId: String, approved: Bool) async throws -> TaskCreated {
+        try await sendJSON(
+            path: "tasks/\(taskId)/confirm", body: ["approved": approved], as: TaskCreated.self
+        )
+    }
+
+    /// 되물음에 탭으로 답한다.
     func answer(
-        taskId: String, questionId: String, selectedOptionId: String, freeText: String? = nil
+        _ taskId: String, questionId: String, optionId: String
     ) async throws -> TaskCreated {
-        var body: [String: Any] = ["questionId": questionId, "selectedOptionId": selectedOptionId]
-        if let freeText { body["freeText"] = freeText }
-        return try await postJSON("/tasks/\(taskId)/answer", body: body, as: TaskCreated.self)
+        try await sendJSON(
+            path: "tasks/\(taskId)/answer",
+            body: ["questionId": questionId, "selectedOptionId": optionId],
+            as: TaskCreated.self
+        )
     }
 
-    func cancel(taskId: String) async throws -> AgentTask {
-        try await postJSON("/tasks/\(taskId)/cancel", body: [:], as: AgentTask.self)
+    func cancel(_ taskId: String) async throws -> TaskView {
+        try await send(request(path: "tasks/\(taskId)/cancel", method: "POST"), as: TaskView.self)
     }
 
     // MARK: - 내부
 
-    private func url(_ path: String) throws -> URL {
-        guard config.isComplete else { throw BridgeError.notConfigured }
-        guard let root = config.apiRoot, let u = URL(string: root.absoluteString + path) else {
-            throw BridgeError.badURL
-        }
-        return u
-    }
+    private func request(
+        path: String, method: String = "GET", query: [URLQueryItem] = []
+    ) -> URLRequest {
+        // 쿼리는 반드시 URLComponents로 붙인다. path에 "?"를 섞으면
+        // appendingPathComponent가 그것까지 퍼센트 인코딩해 URL이 깨진다.
+        let url = baseURL.appendingPathComponent("\(Self.prefix)/\(path)")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if !query.isEmpty { components?.queryItems = query }
 
-    private func authorized(_ url: URL, method: String) -> URLRequest {
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: components?.url ?? url)
         req.httpMethod = method
-        req.setValue("Bearer \(config.deviceToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
         return req
     }
 
-    private func get<T: Decodable>(_ path: String, as: T.Type) async throws -> T {
-        try await send(authorized(try url(path), method: "GET"))
-    }
-
-    private func postJSON<T: Decodable>(_ path: String, body: [String: Any], as: T.Type) async throws -> T {
-        var req = authorized(try url(path), method: "POST")
+    private func sendJSON<T: Decodable>(
+        path: String, body: [String: Any], as type: T.Type
+    ) async throws -> T {
+        var req = request(path: path, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        return try await send(req)
+        return try await send(req, as: type)
     }
 
-    private func upload<T: Decodable>(
-        _ path: String, fields: [String: String], files: [MultipartFile], as: T.Type
-    ) async throws -> T {
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var req = authorized(try url(path), method: "POST")
-        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        req.httpBody = multipartBody(boundary: boundary, fields: fields, files: files)
-        return try await send(req)
-    }
+    private func send<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw BridgeError.network(error)
+        }
 
-    private func send<T: Decodable>(_ req: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw BridgeError.http(status: -1, detail: "응답 없음")
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw BridgeError(message: Self.message(for: status, body: data), statusCode: status)
         }
-        guard (200..<300).contains(http.statusCode) else {
-            throw BridgeError.http(status: http.statusCode, detail: Self.detail(from: data))
-        }
+
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            throw BridgeError.decoding(String(describing: error))
+            throw BridgeError(message: "서버 응답을 해석할 수 없습니다.", statusCode: status)
         }
     }
 
-    /// 백엔드 에러 응답 `{ "detail": "..." }`에서 메시지를 뽑는다.
-    private static func detail(from data: Data) -> String {
-        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let detail = obj["detail"] as? String {
+    /// 서버가 내려준 `detail`을 우선 쓰고, 없을 때만 상태 코드로 문구를 만든다.
+    private static func message(for status: Int, body: Data) -> String {
+        if let detail = try? JSONDecoder().decode(ErrorDetail.self, from: body).detail,
+           !detail.isEmpty {
             return detail
         }
-        return String(data: data, encoding: .utf8) ?? "알 수 없는 오류"
+        switch status {
+        case 401: return "기기 토큰이 올바르지 않습니다. 연결 설정을 확인해 주세요."
+        case 404: return "요청한 항목을 iMac에서 찾을 수 없습니다."
+        case 409: return "지금은 처리할 수 없는 상태입니다."
+        case 413: return "보낸 이미지가 너무 큽니다."
+        case 415: return "지원하지 않는 이미지 형식입니다."
+        case 503: return "iMac에서 아직 준비되지 않은 기능입니다."
+        default: return "요청이 실패했습니다(\(status))."
+        }
+    }
+
+    // MARK: multipart 조립
+
+    private static func multipartBody(
+        fields: [String: String],
+        files: [(name: String, payload: CanvasComposer.ImagePayload)]
+    ) -> (Data, String) {
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+
+        for (key, value) in fields {
+            body.append("--\(boundary)\r\n")
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
+            body.append("\(value)\r\n")
+        }
+
+        for file in files {
+            body.append("--\(boundary)\r\n")
+            body.append(
+                "Content-Disposition: form-data; name=\"\(file.name)\";"
+                + " filename=\"\(file.payload.filename)\"\r\n"
+            )
+            body.append("Content-Type: \(file.payload.mimeType)\r\n\r\n")
+            body.append(file.payload.data)
+            body.append("\r\n")
+        }
+
+        body.append("--\(boundary)--\r\n")
+        return (body, "multipart/form-data; boundary=\(boundary)")
     }
 }
 
-private struct MultipartFile {
-    let field: String
-    let filename: String
-    let mime: String
-    let data: Data
-}
-
-private func multipartBody(boundary: String, fields: [String: String], files: [MultipartFile]) -> Data {
-    var body = Data()
-    let crlf = "\r\n"
-    func append(_ s: String) { body.append(s.data(using: .utf8)!) }
-
-    for (name, value) in fields {
-        append("--\(boundary)\(crlf)")
-        append("Content-Disposition: form-data; name=\"\(name)\"\(crlf)\(crlf)")
-        append("\(value)\(crlf)")
+private extension Data {
+    mutating func append(_ string: String) {
+        if let data = string.data(using: .utf8) { append(data) }
     }
-    for file in files {
-        append("--\(boundary)\(crlf)")
-        append("Content-Disposition: form-data; name=\"\(file.field)\"; filename=\"\(file.filename)\"\(crlf)")
-        append("Content-Type: \(file.mime)\(crlf)\(crlf)")
-        body.append(file.data)
-        append(crlf)
-    }
-    append("--\(boundary)--\(crlf)")
-    return body
 }

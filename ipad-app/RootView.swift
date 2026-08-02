@@ -1,25 +1,38 @@
 import PhotosUI
 import SwiftUI
 
-/// 앱 상태 — 설정과 프로젝트 목록을 들고, Bridge 호출을 감싼다.
+// 실제 앱 흐름: 연결설정 → 프로젝트 목록 → 스크린샷 → 캔버스 → 작업 상태(승인/질문응답).
+// 캔버스·전송은 main의 AnnotationCanvasView/BridgeClient를 그대로 쓴다.
+
+extension TaskCreated: Identifiable {
+    var id: String { taskId }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var config: AppConfig
-    @Published var projects: [Project] = []
+    @Published var projects: [ProjectView] = []
     @Published var loading = false
     @Published var error: String?
 
-    init() { config = .load() }
+    private var baseURLText: String {
+        UserDefaults.standard.string(forKey: "bridgeBaseURL") ?? "http://127.0.0.1:8000"
+    }
+    private var token: String {
+        UserDefaults.standard.string(forKey: "bridgeToken") ?? ""
+    }
 
-    var client: BridgeClient { BridgeClient(config: config) }
+    var isConfigured: Bool {
+        !token.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
-    func saveConfig(_ new: AppConfig) {
-        config = new
-        new.save()
+    var client: BridgeClient {
+        let url = URL(string: baseURLText.trimmingCharacters(in: .whitespaces))
+            ?? URL(string: "http://127.0.0.1:8000")!
+        return BridgeClient(baseURL: url, deviceToken: token)
     }
 
     func refresh() async {
-        guard config.isComplete else { return }
+        guard isConfigured else { return }
         loading = true
         defer { loading = false }
         do {
@@ -40,15 +53,10 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.config.isComplete {
+                if model.isConfigured {
                     ProjectListView(model: model)
                 } else {
-                    ContentUnavailableCompat(
-                        title: "연결 설정이 필요합니다",
-                        message: "Mac Bridge 주소와 기기 토큰을 입력하세요.",
-                        button: "연결 설정",
-                        action: { showSettings = true }
-                    )
+                    NeedsSetupView { showSettings = true }
                 }
             }
             .navigationTitle("Vibex")
@@ -57,7 +65,9 @@ struct RootView: View {
                     Button { showSettings = true } label: { Image(systemName: "gear") }
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView(model: model) }
+            .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) {
+                SettingsView()
+            }
             .task { await model.refresh() }
         }
     }
@@ -66,39 +76,28 @@ struct RootView: View {
 // MARK: - 연결 설정
 
 struct SettingsView: View {
-    @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @State private var baseURL: String = ""
-    @State private var token: String = ""
+    @AppStorage("bridgeBaseURL") private var baseURL = "http://127.0.0.1:8000"
+    @AppStorage("bridgeToken") private var token = ""
+    @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Bridge 주소") {
+                Section("iMac 연결") {
                     TextField("http://100.x.x.x:8000", text: $baseURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    SecureField("기기 토큰", text: $token)
                 }
-                Section("기기 토큰") {
-                    SecureField("BRIDGE_DEVICE_TOKEN", text: $token)
+                Section("캔버스") {
+                    Toggle("손가락으로 그리기(시뮬레이터용)", isOn: $allowFingerDrawing)
                 }
             }
             .navigationTitle("연결 설정")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("저장") {
-                        model.saveConfig(AppConfig(baseURL: baseURL, deviceToken: token))
-                        dismiss()
-                        Task { await model.refresh() }
-                    }
-                    .disabled(baseURL.isEmpty || token.isEmpty)
-                }
-            }
-            .onAppear {
-                baseURL = model.config.baseURL
-                token = model.config.deviceToken
+                ToolbarItem(placement: .confirmationAction) { Button("완료") { dismiss() } }
             }
         }
     }
@@ -115,38 +114,41 @@ struct ProjectListView: View {
                 Text(error).foregroundStyle(.red).font(.footnote)
             }
             ForEach(model.projects) { project in
-                NavigationLink(value: project) {
+                NavigationLink {
+                    ComposeView(model: model, project: project)
+                } label: {
                     HStack {
-                        Circle().fill(color(for: project.status)).frame(width: 10, height: 10)
+                        Circle().fill(color(project.status)).frame(width: 10, height: 10)
                         VStack(alignment: .leading) {
-                            Text(project.displayName).font(.body)
+                            Text(project.displayName)
                             if let reason = project.reason {
                                 Text(reason).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
-                        Text(label(for: project.status)).font(.caption).foregroundStyle(.secondary)
+                        Text(label(project.status)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(project.status == .unavailable)
             }
         }
-        .overlay { if model.projects.isEmpty && !model.loading { Text("등록된 프로젝트가 없습니다.").foregroundStyle(.secondary) } }
-        .refreshable { await model.refresh() }
-        .navigationDestination(for: Project.self) { project in
-            ComposeView(model: model, project: project)
+        .overlay {
+            if model.projects.isEmpty && !model.loading {
+                Text("등록된 프로젝트가 없습니다.").foregroundStyle(.secondary)
+            }
         }
+        .refreshable { await model.refresh() }
     }
 
-    private func color(for status: ProjectStatus) -> Color {
-        switch status {
+    private func color(_ s: ProjectView.Status) -> Color {
+        switch s {
         case .idle: return .green
         case .busy: return .orange
         case .unavailable: return .gray
         }
     }
-    private func label(for status: ProjectStatus) -> String {
-        switch status {
+    private func label(_ s: ProjectView.Status) -> String {
+        switch s {
         case .idle: return "대기"
         case .busy: return "작업 중"
         case .unavailable: return "사용 불가"
@@ -158,25 +160,31 @@ struct ProjectListView: View {
 
 struct ComposeView: View {
     @ObservedObject var model: AppModel
-    let project: Project
+    let project: ProjectView
 
+    @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var screenshot: UIImage?
-    @State private var presented: PresentedTask?
-    @State private var sendError: String?
+    @State private var created: TaskCreated?
 
     var body: some View {
         Group {
             if let screenshot {
-                AnnotationCanvasView(screenshot: screenshot) { canvasImage, baseImage in
-                    submit(canvasImage: canvasImage, baseImage: baseImage)
+                AnnotationCanvasView(
+                    projectId: project.projectId,
+                    screenshot: screenshot,
+                    client: model.client,
+                    allowFingerDrawing: allowFingerDrawing
+                ) { created in
+                    self.created = created
                 }
             } else {
                 VStack(spacing: 16) {
-                    Text("수정할 화면의 스크린샷을 고르세요.").foregroundStyle(.secondary)
+                    Text("수정할 화면을 고르세요.").foregroundStyle(.secondary)
                     PhotosPicker("스크린샷 선택", selection: $pickerItem, matching: .images)
                         .buttonStyle(.borderedProminent)
-                    if let sendError { Text(sendError).foregroundStyle(.red).font(.footnote) }
+                    Button("샘플 화면으로 시험") { screenshot = SampleScreenshot.loginScreen() }
+                        .buttonStyle(.bordered)
                 }
             }
         }
@@ -189,26 +197,9 @@ struct ComposeView: View {
                 }
             }
         }
-        .sheet(item: $presented) { task in
-            TaskStatusView(model: model, taskId: task.id)
-        }
-    }
-
-    private func submit(canvasImage: Data, baseImage: Data) {
-        Task {
-            do {
-                let created = try await model.client.submitDrawing(
-                    projectId: project.projectId, canvasImage: canvasImage, baseImage: baseImage
-                )
-                presented = PresentedTask(id: created.taskId)
-            } catch {
-                sendError = error.localizedDescription
-            }
-        }
+        .sheet(item: $created) { TaskStatusView(model: model, taskId: $0.taskId) }
     }
 }
-
-struct PresentedTask: Identifiable { let id: String }
 
 // MARK: - 작업 상태 (폴링 + 승인 + 질문 응답)
 
@@ -216,8 +207,8 @@ struct TaskStatusView: View {
     @ObservedObject var model: AppModel
     let taskId: String
 
-    @State private var task: AgentTask?
-    @State private var error: String?
+    @State private var task: TaskView?
+    @State private var errorText: String?
 
     var body: some View {
         NavigationStack {
@@ -228,30 +219,34 @@ struct TaskStatusView: View {
                     if let summary = task.summary, !summary.isEmpty {
                         Section("요약") { Text(summary) }
                     }
-                    if task.needsConfirmation, let c = task.interpretation {
+                    if let reply = task.agentReply, !reply.isEmpty {
+                        Section("에이전트") { Text(reply) }
+                    }
+
+                    if needsConfirmation(task), let c = task.interpretation {
                         Section("해석 결과") {
-                            if let s = c.summary { Text(s) }
-                            if let conf = c.overallConfidence {
-                                Text("신뢰도 \(Int(conf * 100))%").font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text(c.summary)
+                            Text("신뢰도 \(Int(c.overallConfidence * 100))%")
+                                .font(.caption).foregroundStyle(.secondary)
                             HStack {
-                                Button("승인") { act { try await model.client.confirm(taskId: taskId, approved: true) } }
-                                    .buttonStyle(.borderedProminent)
+                                Button("승인") {
+                                    act { _ = try await model.client.confirm(taskId, approved: true) }
+                                }
+                                .buttonStyle(.borderedProminent)
                                 Button("취소", role: .destructive) {
-                                    act { try await model.client.confirm(taskId: taskId, approved: false) }
+                                    act { _ = try await model.client.confirm(taskId, approved: false) }
                                 }
                             }
                         }
                     }
-                    if task.needsAnswer {
+                    if task.status == .awaitingConfirmation, !task.questions.isEmpty {
                         ForEach(task.questions) { q in
                             Section(q.text) {
-                                ForEach(q.options, id: \.optionId) { opt in
+                                ForEach(q.options) { opt in
                                     Button(opt.label) {
                                         act {
-                                            try await model.client.answer(
-                                                taskId: taskId, questionId: q.questionId,
-                                                selectedOptionId: opt.optionId
+                                            _ = try await model.client.answer(
+                                                taskId, questionId: q.questionId, optionId: opt.optionId
                                             )
                                         }
                                     }
@@ -264,7 +259,9 @@ struct TaskStatusView: View {
                             ForEach(task.changedFiles, id: \.path) { f in
                                 VStack(alignment: .leading) {
                                     Text(f.path).font(.callout.monospaced())
-                                    if !f.summary.isEmpty { Text(f.summary).font(.caption).foregroundStyle(.secondary) }
+                                    if !f.summary.isEmpty {
+                                        Text(f.summary).font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -279,9 +276,11 @@ struct TaskStatusView: View {
                             }
                         }
                     }
-                    if let err = task.error { Section("오류") { Text(err).foregroundStyle(.red) } }
-                } else if let error {
-                    Text(error).foregroundStyle(.red)
+                    if let e = task.error {
+                        Section("오류") { Text(e).foregroundStyle(.red) }
+                    }
+                } else if let errorText {
+                    Text(errorText).foregroundStyle(.red)
                 } else {
                     ProgressView("불러오는 중…")
                 }
@@ -291,26 +290,30 @@ struct TaskStatusView: View {
         }
     }
 
+    private func needsConfirmation(_ task: TaskView) -> Bool {
+        task.status == .awaitingConfirmation && task.interpretation != nil && task.questions.isEmpty
+    }
+
     // 끝날 때까지 폴링. 끊겨도 다시 열면 이어진다.
     private func poll() async {
-        while !Swift.Task.isCancelled {
+        while !Task.isCancelled {
             do {
-                let t = try await model.client.getTask(taskId)
+                let t = try await model.client.task(taskId)
                 task = t
                 if !t.status.isActive { break }
             } catch {
-                self.error = error.localizedDescription
+                errorText = error.localizedDescription
                 break
             }
-            try? await Swift.Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
     }
 
-    /// 승인·응답 액션 실행 후 폴링을 다시 태운다.
-    private func act(_ work: @escaping () async throws -> Any) {
-        Swift.Task {
-            do { _ = try await work(); await poll() }
-            catch { self.error = error.localizedDescription }
+    // 승인·응답 후 다시 폴링을 태운다.
+    private func act(_ work: @escaping () async throws -> Void) {
+        Task {
+            do { try await work(); await poll() }
+            catch { errorText = error.localizedDescription }
         }
     }
 
@@ -335,21 +338,18 @@ struct TaskStatusView: View {
     }
 }
 
-// MARK: - 빈 상태 (iOS 16 호환)
+// MARK: - 빈 상태
 
-struct ContentUnavailableCompat: View {
-    let title: String
-    let message: String
-    let button: String
+struct NeedsSetupView: View {
     let action: () -> Void
-
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "antenna.radiowaves.left.and.right.slash")
                 .font(.largeTitle).foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button(button, action: action).buttonStyle(.borderedProminent).padding(.top, 4)
+            Text("연결 설정이 필요합니다").font(.headline)
+            Text("Mac Bridge 주소와 기기 토큰을 입력하세요.")
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("연결 설정", action: action).buttonStyle(.borderedProminent).padding(.top, 4)
         }
         .padding()
     }
