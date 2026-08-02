@@ -1,0 +1,40 @@
+# XcodeGen 스펙. macOS에서: xcodegen generate → Vibex.xcodeproj 생성.
+name: Vibex
+options:
+  bundleIdPrefix: com.hansangcharim
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  Vibex:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - "*.md"
+          - "*.yml"
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hansangcharim.vibex
+        TARGETED_DEVICE_FAMILY: "2"        # iPad 전용
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        # DEVELOPMENT_TEAM: "XXXXXXXXXX"   # Xcode에서 본인 서명 팀으로 설정
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Vibex
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 개발용 http Bridge 허용(ATS). 실배포 전에 https로 좁힐 것.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
