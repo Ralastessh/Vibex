@@ -1,48 +1,42 @@
 import PencilKit
 import UIKit
 
-/// 스크린샷 배경과 손그림 주석을 하나의 이미지로 합성
+/// 캔버스 이미지 내보내기.
 enum CanvasComposer {
 
-    /// 배경 이미지와 PencilKit 드로잉을 겹쳐 한 장의 UIImage
-    ///
-    /// - Parameters:
-    ///   - background: 주석 대상 스크린샷.
-    ///   - drawing: PKCanvasView.drawing (주석 획).
-    ///   - canvasBounds: 캔버스(=배경 표시 영역)의 좌표 공간
-    ///   - scale: 출력 배율
-    static func compose(
+    /// 획만 담은 투명 PNG. 전송(canvasImage)에 쓴다. 배경과 합치지 않는다.
+    static func strokesPNG(drawing: PKDrawing, bounds: CGRect, scale: CGFloat = 0) -> Data? {
+        drawing.image(from: bounds, scale: resolvedScale(scale)).pngData()
+    }
+
+    /// 배경 + 획을 겹친 한 장. 미리보기용(전송에는 안 씀).
+    static func previewComposite(
         background: UIImage,
         drawing: PKDrawing,
         canvasBounds: CGRect,
         scale: CGFloat = 0
     ) -> UIImage {
+        let resolved = resolvedScale(scale)
         let format = UIGraphicsImageRendererFormat.default()
-        format.scale = scale > 0 ? scale : UIScreen.main.scale
+        format.scale = resolved
         format.opaque = true
 
         let renderer = UIGraphicsImageRenderer(size: canvasBounds.size, format: format)
         return renderer.image { _ in
-            // 1) 배경 스크린샷을 캔버스에 꽉 맞춰 그림
             drawAspectFill(background, in: CGRect(origin: .zero, size: canvasBounds.size))
-            // 2) 그 위에 주석 획을 얹음
-            let strokes = drawing.image(from: canvasBounds, scale: format.scale)
+            let strokes = drawing.image(from: canvasBounds, scale: resolved)
             strokes.draw(in: CGRect(origin: .zero, size: canvasBounds.size))
         }
     }
 
-    /// 합성 결과를 PNG 데이터로
-    static func pngData(
-        background: UIImage,
-        drawing: PKDrawing,
-        canvasBounds: CGRect,
-        scale: CGFloat = 0
-    ) -> Data? {
-        compose(background: background, drawing: drawing, canvasBounds: canvasBounds, scale: scale)
-            .pngData()
+    // MARK: - 내부
+
+    // 0이면 화면 배율. 되도록 호출부가 뷰 displayScale을 넘긴다(분할 화면).
+    private static func resolvedScale(_ scale: CGFloat) -> CGFloat {
+        scale > 0 ? scale : UIScreen.main.scale
     }
 
-    /// 비율을 유지하며 rect를 꽉 채우도록 그림
+    // 비율 유지하며 rect를 꽉 채운다.
     private static func drawAspectFill(_ image: UIImage, in rect: CGRect) {
         let imgSize = image.size
         guard imgSize.width > 0, imgSize.height > 0 else {

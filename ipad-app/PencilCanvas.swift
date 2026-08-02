@@ -1,5 +1,6 @@
 import PencilKit
 import SwiftUI
+
 struct PencilCanvas: UIViewRepresentable {
     let canvasView: PKCanvasView
 
@@ -7,7 +8,8 @@ struct PencilCanvas: UIViewRepresentable {
     @Binding var shapeSnapEnabled: Bool
 
     func makeUIView(context: Context) -> PKCanvasView {
-        canvasView.drawingPolicy = .anyInput // 펜·손가락 모두 허용
+        // 팜 리젝션: Pencil로만 그린다.
+        canvasView.drawingPolicy = .pencilOnly
         canvasView.backgroundColor = .clear
         canvasView.isOpaque = false
         canvasView.delegate = context.coordinator
@@ -35,15 +37,14 @@ struct PencilCanvas: UIViewRepresentable {
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let toolPicker = PKToolPicker()
         var shapeSnapEnabled: Bool
-        private var isSnapping = false
 
         init(shapeSnapEnabled: Bool) {
             self.shapeSnapEnabled = shapeSnapEnabled
         }
 
-        /// 획을 뗀 순간. 도형 모드면 방금 그린 획을 인식해 스냅
+        /// 획을 뗀 순간. 도형 모드면 방금 그린 획을 인식해 스냅한다.
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            guard shapeSnapEnabled, !isSnapping else { return }
+            guard shapeSnapEnabled else { return }
             guard let last = canvasView.drawing.strokes.last else { return }
 
             let points = sampledPoints(of: last)
@@ -54,27 +55,27 @@ struct PencilCanvas: UIViewRepresentable {
             strokes.removeLast()
             strokes.append(ideal)
 
-            isSnapping = true
-            canvasView.drawing = PKDrawing(strokes: strokes)
-            isSnapping = false
+            // undo 스택에 남게 등록 경로로 바꾼다(직접 대입은 안 남음).
+            canvasView.setDrawingUndoable(PKDrawing(strokes: strokes))
         }
 
         // MARK: 획 ↔ 점 변환
-        /// PKStroke를 캔버스 좌표계의 점 배열로 뽑음
+
+        /// PKStroke를 캔버스 좌표계의 점 배열로 뽑는다.
         private func sampledPoints(of stroke: PKStroke) -> [CGPoint] {
             stroke.path.map { $0.location.applying(stroke.transform) }
         }
 
-        /// 원래 획의 잉크(색)와 굵기를 유지한 채 이상적 도형 획을 만듦
+        // 원래 획의 색·굵기를 유지한 도형 획을 만든다.
         private func makeStroke(outline: [CGPoint], like source: PKStroke) -> PKStroke {
-            // 원본 획의 평균 굵기를 가져와 균일하게 적용
             let sizes = source.path.map { $0.size.width }
             let width = sizes.isEmpty ? 4 : sizes.reduce(0, +) / CGFloat(sizes.count)
 
-            let controlPoints = outline.map { point in
+            // timeOffset은 점마다 증가시켜야 한다(전부 0이면 안 그려짐).
+            let controlPoints = outline.enumerated().map { index, point in
                 PKStrokePoint(
                     location: point,
-                    timeOffset: 0,
+                    timeOffset: Double(index) * 0.01,
                     size: CGSize(width: width, height: width),
                     opacity: 1,
                     force: 1,
@@ -85,5 +86,16 @@ struct PencilCanvas: UIViewRepresentable {
             let path = PKStrokePath(controlPoints: controlPoints, creationDate: Date())
             return PKStroke(ink: source.ink, path: path)
         }
+    }
+}
+
+extension PKCanvasView {
+    // drawing을 undo 스택에 남기며 바꾼다(직접 대입은 안 남음). redo도 된다.
+    func setDrawingUndoable(_ newDrawing: PKDrawing) {
+        let previous = drawing
+        undoManager?.registerUndo(withTarget: self) { canvas in
+            canvas.setDrawingUndoable(previous)
+        }
+        drawing = newDrawing
     }
 }
