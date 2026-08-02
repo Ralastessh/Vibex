@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from pydantic import BaseModel, Field
-from backend.src.vision.schema import ProjectCommand
+from src.vision.schema import ProjectCommand
 
 # 현재 작업 상태에 대한 정보 -> 추후 작업이 끊겨도 지속적으로 확인 가능
 class TaskStatus(str, Enum):
@@ -67,6 +67,8 @@ class Task(BaseModel):
     #: §8 Vision 해석 결과. iPad의 Confirmation 화면(§19)이 이걸 보여준다.
     interpretation: ProjectCommand | None = None
     summary: str | None = None
+
+    agent_reply: str | None = Field(default=None, alias="agentReply")
     changed_files: list[ChangedFile] = Field(default_factory=list, alias="changedFiles")
     test_results: list[TestResult] = Field(default_factory=list, alias="testResults")
     questions: list[Question] = Field(default_factory=list)

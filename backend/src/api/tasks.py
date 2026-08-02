@@ -3,14 +3,14 @@ import asyncio
 import logging
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from backend.src.agents.prompt import build, build_answer
-from backend.src.agents.registry import UnsupportedAgentError, build_adapter
-from backend.src.auth.device import RequireDevice
-from backend.src.projects.registry import UnknownProjectError
-from backend.src.tasks.models import Task, TaskStatus
-from backend.src.tasks.runner import interpret_task, run_task
-from backend.src.tasks.store import ProjectBusyError
-from backend.src.vision.validate import UnsafeCommandError, is_confident_enough, validate
+from src.agents.prompt import build, build_answer
+from src.agents.registry import UnsupportedAgentError, build_adapter
+from src.auth.device import RequireDevice
+from src.projects.registry import UnknownProjectError
+from src.tasks.models import Task, TaskStatus
+from src.tasks.runner import interpret_task, run_task
+from src.tasks.store import ProjectBusyError
+from src.vision.validate import UnsafeCommandError, is_confident_enough, validate
 
 logger = logging.getLogger("bridge.api.tasks")
 

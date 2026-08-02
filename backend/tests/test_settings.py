@@ -1,36 +1,18 @@
-"""설정 로딩 (CLAUDE.md §18).
-
-여기서 지키는 것은 하나다 — **어디서 실행하든 같은 설정이 읽힌다.**
-
-pydantic-settings는 상대 경로 env_file을 현재 작업 디렉터리 기준으로 푼다.
-그대로 두면 저장소 최상위에서 실행할 때와 bridge/ 안에서 실행할 때 결과가
-달라지고, 토큰을 넣어 뒀는데 "설정되지 않았습니다"로 죽는다.
-"""
-
 from __future__ import annotations
-
 import os
 import pathlib
-
 import pytest
-
 from src.config.settings import ENV_FILES, REPO_ROOT, ROOT_MARKERS, Settings
 
 
 def test_repo_root_actually_points_at_the_repository():
-    """`parents[N]` 계산이 어긋나면 조용히 저장소 밖을 가리킨다.
-
-    실제로 bridge/ 폴더를 없앨 때 한 칸씩 밀려 REPO_ROOT가 상위 디렉터리를
-    가리켰는데, **테스트 172개가 전부 통과했다.** 그때의 검증이
-    `BRIDGE_DIR.parent == REPO_ROOT` 같은 항상 참인 식이었기 때문이다.
-
-    그래서 위치가 아니라 **내용**으로 확인한다. 최상위에만 있는 파일이 거기
-    있어야 하고, 하위 디렉터리도 제자리에 있어야 한다.
-    """
     for marker in ROOT_MARKERS:
-        assert (REPO_ROOT / marker).is_file(), f"최상위에 {marker} 가 없습니다: {REPO_ROOT}"
-    for directory in ("src", "tests", "ipad-app", "docs", "scripts"):
+        assert (REPO_ROOT / marker).is_file(), f"{marker} 가 없습니다: {REPO_ROOT}"
+    for directory in ("src", "tests"):
         assert (REPO_ROOT / directory).is_dir(), f"{directory}/ 가 없습니다: {REPO_ROOT}"
+    assert (REPO_ROOT.parent / "requirements.txt").is_file()
+    for directory in ("ipad-app", "docs"):
+        assert (REPO_ROOT.parent / directory).is_dir()
 
 
 def test_repo_root_contains_this_test_file():

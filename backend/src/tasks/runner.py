@@ -1,14 +1,26 @@
 from __future__ import annotations
 import logging
-from backend.src.agents.base import AgentAdapter
-from backend.src.projects import git
-from backend.src.projects.registry import Project
-from backend.src.tasks.models import ChangedFile, TaskStatus
-from backend.src.tasks.store import TaskStore
-from backend.src.vision.openai import VisionError
-from backend.src.vision.validate import UnsafeCommandError, validate
+from src.agents.base import AgentAdapter
+from src.agents.contract import without_block
+from src.projects import git
+from src.projects.registry import Project
+from src.tasks.models import ChangedFile, TaskStatus
+from src.tasks.store import TaskStore
+from src.vision.openai import VisionError
+from src.vision.validate import UnsafeCommandError, validate
 
 logger = logging.getLogger("bridge.runner")
+
+MAX_REPLY_CHARS = 20_000
+
+def _reply(result) -> str | None:
+    """에이전트가 사람에게 한 말. 저장할 게 없으면 None(= 기존 값 유지)."""
+    text = without_block(result.raw_output)
+    if not text:
+        return None
+    if len(text) <= MAX_REPLY_CHARS:
+        return text
+    return text[:MAX_REPLY_CHARS] + "\n…(이후 생략)"
 
 async def interpret_task(
     *,
@@ -121,6 +133,7 @@ async def _run(
             status=TaskStatus.FAILED,
             error=result.error,
             summary=report.summary if report else None,
+            agent_reply=_reply(result),
             changed_files=_changed_files(delta, report),
             test_results=report.tests if report else [],
             warnings=warnings,
@@ -135,6 +148,7 @@ async def _run(
             task_id,
             status=TaskStatus.AWAITING_CONFIRMATION,
             summary=report.summary,
+            agent_reply=_reply(result),
             questions=report.questions,
             changed_files=_changed_files(delta, report),
             warnings=warnings,
@@ -146,6 +160,7 @@ async def _run(
         task_id,
         status=TaskStatus.COMPLETED,
         summary=report.summary,
+        agent_reply=_reply(result),
         changed_files=_changed_files(delta, report),
         test_results=report.tests,
         questions=[],

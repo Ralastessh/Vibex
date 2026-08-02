@@ -2,17 +2,17 @@ from __future__ import annotations
 from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from backend.src.auth.device import RequireDevice
-from backend.src.projects.registry import (
+from src.auth.device import RequireDevice
+from src.projects.registry import (
     DuplicateProjectError,
     Project,
     UnknownProjectError,
 )
-from backend.src.projects.workspace import (
+from src.projects.workspace import (
     InvalidProjectNameError,
     WorkspaceNotConfiguredError,
 )
-from backend.src.projects.workspace import create_project as create_in_workspace
+from src.projects.workspace import create_project as create_in_workspace
 
 router = APIRouter(prefix="/projects", tags=["projects"], dependencies=[RequireDevice])
 ProjectStatus = Literal["idle", "busy", "unavailable"]

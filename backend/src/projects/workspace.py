@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from backend.src.projects.registry import Project
+from src.projects.registry import Project
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9가-힣]+")
 MAX_SLUG_LENGTH = 48
