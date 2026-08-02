@@ -1,8 +1,7 @@
 import PhotosUI
 import SwiftUI
 
-// 실제 앱 흐름: 연결설정 → 프로젝트 목록 → 스크린샷 → 캔버스 → 작업 상태(승인/질문응답).
-// 캔버스·전송은 main의 AnnotationCanvasView/BridgeClient를 그대로 쓴다.
+// 앱 흐름: 목록 → 스크린샷 → 캔버스 → 작업 상태.
 
 extension TaskCreated: Identifiable {
     var id: String { taskId }
@@ -294,7 +293,7 @@ struct TaskStatusView: View {
         task.status == .awaitingConfirmation && task.interpretation != nil && task.questions.isEmpty
     }
 
-    // 끝날 때까지 폴링. 끊겨도 다시 열면 이어진다.
+    // 끝날 때까지 폴링.
     private func poll() async {
         while !Task.isCancelled {
             do {
@@ -309,7 +308,7 @@ struct TaskStatusView: View {
         }
     }
 
-    // 승인·응답 후 다시 폴링을 태운다.
+    // 답 보내고 다시 폴링.
     private func act(_ work: @escaping () async throws -> Void) {
         Task {
             do { try await work(); await poll() }

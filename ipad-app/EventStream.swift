@@ -1,8 +1,7 @@
 import Foundation
 
-// WebSocket 진행 이벤트 수신(보조 채널; 주 경로는 폴링).
-// 아직 RootView엔 연결하지 않았다 — 상태는 폴링으로 갱신한다.
-// TODO: 이벤트 페이로드 형태는 백엔드와 확인. 지금은 원시 딕셔너리로 넘김.
+// WebSocket 진행 이벤트(보조 — 지금은 폴링을 씀).
+// TODO: 이벤트 페이로드 형태 백엔드와 확인.
 final class EventStream {
     private let url: URL?
     private let token: String
@@ -47,7 +46,7 @@ final class EventStream {
                 self.handle(message)
                 self.receive()
             case .failure:
-                // 끊김 → 잠깐 뒤 재연결(폴링이 공백을 메운다).
+                // 끊기면 재연결.
                 self.task = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                     if self?.running == true { self?.start() }
