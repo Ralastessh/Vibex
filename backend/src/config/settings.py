@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ROOT_MARKERS = ("pyproject.toml", "requirements.txt", "CLAUDE.md")
+ROOT_MARKERS = ("pytest.ini",)
 ENV_FILES = (REPO_ROOT / ".env", Path(".env"))
 
 class Settings(BaseSettings):
@@ -22,8 +22,12 @@ class Settings(BaseSettings):
     vision_model: str = "gpt-5.5"
     vision_timeout_seconds: float = 120.0
     max_budget_usd: float = 2.0
-    # 고해상도 이미지로 불필요한 토큰 낭비를 방지
-    max_image_bytes: int = 10 * 1024 * 1024
+    max_image_bytes: int = 32 * 1024 * 1024
+
+    @property
+    def max_upload_bytes(self) -> int:
+        # 요청 전체 상한 — canvas + base + 폼 필드
+        return self.max_image_bytes * 2 + 1024 * 1024
 
     def require_device_token(self) -> str:
         if not self.device_token.strip():

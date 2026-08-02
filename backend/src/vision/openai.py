@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Protocol, runtime_checkable
 import httpx
-from backend.src.vision.schema import ProjectCommand, json_schema
+from src.vision.schema import ProjectCommand, json_schema
 
 logger = logging.getLogger("bridge.vision")
 

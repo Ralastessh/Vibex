@@ -2,8 +2,8 @@
 from __future__ import annotations
 import shutil
 from dataclasses import dataclass
-from backend.src.agents.base import AgentAdapter
-from backend.src.agents.claude_code import ClaudeCodeAdapter
+from src.agents.base import AgentAdapter
+from src.agents.claude_code import ClaudeCodeAdapter
 
 
 @dataclass(frozen=True)

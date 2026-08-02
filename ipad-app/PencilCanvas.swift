@@ -1,13 +1,33 @@
 import PencilKit
 import SwiftUI
+
+extension PKCanvasView {
+    /// `drawing`에 직접 대입하면 **undo 스택에 남지 않는다.**
+    /// 되돌릴 수 있어야 하는 변경은 전부 이 경로로 보낸다.
+    func setDrawingUndoably(_ newDrawing: PKDrawing, actionName: String) {
+        let previous = drawing
+        undoManager?.registerUndo(withTarget: self) { target in
+            // undo 처리 안에서 다시 등록하므로 redo도 같은 경로로 동작한다.
+            target.setDrawingUndoably(previous, actionName: actionName)
+        }
+        undoManager?.setActionName(actionName)
+        drawing = newDrawing
+    }
+}
+
 struct PencilCanvas: UIViewRepresentable {
     let canvasView: PKCanvasView
 
     /// 도형 스냅 on/off.
     @Binding var shapeSnapEnabled: Bool
 
+    /// 손가락 입력 허용. 기본값은 꺼짐 — 켜면 손바닥이 닿는 순간 획이 그려진다.
+    /// 펜슬이 없는 시뮬레이터에서 시험할 때만 켠다.
+    var allowFingerDrawing = false
+
     func makeUIView(context: Context) -> PKCanvasView {
-        canvasView.drawingPolicy = .anyInput // 펜·손가락 모두 허용
+        // 팜 리젝션은 펜만 받는 것으로 얻는다.
+        canvasView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
         canvasView.backgroundColor = .clear
         canvasView.isOpaque = false
         canvasView.delegate = context.coordinator
@@ -24,6 +44,7 @@ struct PencilCanvas: UIViewRepresentable {
 
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
         context.coordinator.shapeSnapEnabled = shapeSnapEnabled
+        uiView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
     }
 
     func makeCoordinator() -> Coordinator {
@@ -35,7 +56,6 @@ struct PencilCanvas: UIViewRepresentable {
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let toolPicker = PKToolPicker()
         var shapeSnapEnabled: Bool
-        private var isSnapping = false
 
         init(shapeSnapEnabled: Bool) {
             self.shapeSnapEnabled = shapeSnapEnabled
@@ -43,20 +63,16 @@ struct PencilCanvas: UIViewRepresentable {
 
         /// 획을 뗀 순간. 도형 모드면 방금 그린 획을 인식해 스냅
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            guard shapeSnapEnabled, !isSnapping else { return }
+            guard shapeSnapEnabled else { return }
             guard let last = canvasView.drawing.strokes.last else { return }
 
             let points = sampledPoints(of: last)
             guard let snapped = ShapeSnap.snap(points) else { return }
 
-            let ideal = makeStroke(outline: snapped.outline, like: last)
             var strokes = canvasView.drawing.strokes
             strokes.removeLast()
-            strokes.append(ideal)
-
-            isSnapping = true
-            canvasView.drawing = PKDrawing(strokes: strokes)
-            isSnapping = false
+            strokes.append(makeStroke(outline: snapped.outline, like: last))
+            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "도형 정리")
         }
 
         // MARK: 획 ↔ 점 변환
@@ -71,10 +87,13 @@ struct PencilCanvas: UIViewRepresentable {
             let sizes = source.path.map { $0.size.width }
             let width = sizes.isEmpty ? 4 : sizes.reduce(0, +) / CGFloat(sizes.count)
 
-            let controlPoints = outline.map { point in
+            // PKStrokePath는 컨트롤 포인트의 시간으로 보간한다. timeOffset이 전부
+            // 0이면 획이 한 점으로 뭉치거나 아예 그려지지 않는다.
+            let interval = 1.0 / 240.0
+            let controlPoints = outline.enumerated().map { index, point in
                 PKStrokePoint(
                     location: point,
-                    timeOffset: 0,
+                    timeOffset: Double(index) * interval,
                     size: CGSize(width: width, height: width),
                     opacity: 1,
                     force: 1,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re
-from backend.src.vision.schema import ProjectCommand
+from src.vision.schema import ProjectCommand
 
 CONFIDENCE_FLOOR = 0.65
 

@@ -3,19 +3,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
-from backend.src.agents.base import AgentRunResult
-from backend.src.agents.contract import ContractError, extract
+from src.agents.base import AgentRunResult
+from src.agents.contract import ContractError, extract
 
 # 로깅용
 logger = logging.getLogger("src.agents.claude")
 
 SESSIONS_ROOT = Path.home() / ".claude" / "projects"
+_NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
 
 # 작업 프로젝트 내의 LLM과의 채팅 세션 반환
 def session_dir_for(repo_path: Path) -> Path:
-    return SESSIONS_ROOT / str(repo_path.resolve()).replace("/", "-")
+    return SESSIONS_ROOT / _NON_ALNUM.sub("-", str(repo_path.resolve()))
 
 # Claude Code 전용 어뎁터 클래스
 class ClaudeCodeAdapter:

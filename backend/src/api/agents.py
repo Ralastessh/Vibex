@@ -1,8 +1,8 @@
 from __future__ import annotations
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
-from backend.src.agents.registry import available_agents
-from backend.src.auth.device import RequireDevice
+from src.agents.registry import available_agents
+from src.auth.device import RequireDevice
 
 # 향후 Claude Code뿐만 아니라 타 LLM도 지원할 예정 -> 별도 라우터를 두어 모델 선택지를 둠
 router = APIRouter(prefix="/agents", tags=["agents"], dependencies=[RequireDevice])
