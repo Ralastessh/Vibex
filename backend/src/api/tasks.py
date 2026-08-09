@@ -159,7 +159,7 @@ async def create_task(
         )
     else:
         prompt = build(
-            [typedNote.strip()], resumed=True, test_commands=project.test_commands
+            [typedNote.strip()], resumed=False, test_commands=project.test_commands
         )
         _spawn(request, task.task_id, project, prompt)
     return TaskCreated(taskId=task.task_id, status=task.status)

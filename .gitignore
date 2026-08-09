@@ -20,6 +20,9 @@ ipad-app/**/DerivedData/
 # macOS
 .DS_Store
 
+# Vibex로 제어하는 로컬 독립 테스트 저장소
+/test-projects/
+
 # Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋한다)
 *.xcworkspace/xcuserdata/
 ipad-app/**/xcuserdata/

@@ -5,8 +5,10 @@ import json
 import logging
 import os
 import socket
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import urlunsplit
 
 from src.projects.registry import Project
@@ -27,6 +29,23 @@ class PreviewSession:
     project_id: str
     port: int
     process: asyncio.subprocess.Process | None
+    log_file: BinaryIO | None = None
+
+
+def _log_tail(log_file: BinaryIO, limit: int = 2_000) -> str:
+    try:
+        log_file.flush()
+        log_file.seek(0, os.SEEK_END)
+        size = log_file.tell()
+        log_file.seek(max(0, size - limit))
+        return log_file.read().decode("utf-8", "replace").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def _with_log(message: str, log_file: BinaryIO) -> str:
+    tail = _log_tail(log_file)
+    return f"{message}\n\n실행 로그:\n{tail}" if tail else message
 
 
 def _package_json(project: Project) -> dict:
@@ -93,7 +112,7 @@ def public_url(host: str, port: int) -> str:
 class PreviewManager:
     """프로젝트 dev server를 PC에서 시작하고 iPad가 열 URL을 관리한다."""
 
-    def __init__(self, *, start_timeout: float = 20.0) -> None:
+    def __init__(self, *, start_timeout: float = 180.0) -> None:
         self._start_timeout = start_timeout
         self._sessions: dict[str, PreviewSession] = {}
         self._lock = asyncio.Lock()
@@ -130,27 +149,32 @@ class PreviewManager:
 
             env = os.environ.copy()
             env.update({"HOST": "0.0.0.0", "PORT": str(port), "BROWSER": "none"})
+            log_file = tempfile.TemporaryFile(mode="w+b")
             try:
                 process = await asyncio.create_subprocess_exec(
                     *command,
                     cwd=project.repo_path,
                     env=env,
                     stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stdout=log_file,
+                    stderr=asyncio.subprocess.STDOUT,
                 )
             except OSError as exc:
+                log_file.close()
                 raise PreviewStartError(f"프론트엔드 실행에 실패했습니다: {exc}") from exc
 
             deadline = asyncio.get_running_loop().time() + self._start_timeout
             while asyncio.get_running_loop().time() < deadline:
                 if process.returncode is not None:
                     await process.wait()
-                    raise PreviewStartError(
-                        f"프론트엔드가 시작 중 종료되었습니다(코드 {process.returncode})."
+                    message = _with_log(
+                        f"프론트엔드가 시작 중 종료되었습니다(코드 {process.returncode}).",
+                        log_file,
                     )
+                    log_file.close()
+                    raise PreviewStartError(message)
                 if await _accepting(port):
-                    session = PreviewSession(project.project_id, port, process)
+                    session = PreviewSession(project.project_id, port, process, log_file)
                     self._sessions[project.project_id] = session
                     logger.info("%s 프리뷰 시작: %s", project.project_id, public_url(public_host, port))
                     return session
@@ -158,12 +182,18 @@ class PreviewManager:
 
             process.terminate()
             await process.wait()
-            raise PreviewStartError("프론트엔드가 제한 시간 안에 준비되지 않았습니다.")
+            message = _with_log(
+                "프론트엔드가 제한 시간 안에 준비되지 않았습니다.", log_file
+            )
+            log_file.close()
+            raise PreviewStartError(message)
 
     async def stop(self, project_id: str) -> None:
         async with self._lock:
             session = self._sessions.pop(project_id, None)
             if session is None or session.process is None or session.process.returncode is not None:
+                if session is not None and session.log_file is not None:
+                    session.log_file.close()
                 return
             session.process.terminate()
             try:
@@ -171,6 +201,8 @@ class PreviewManager:
             except asyncio.TimeoutError:
                 session.process.kill()
                 await session.process.wait()
+            if session.log_file is not None:
+                session.log_file.close()
 
     async def close(self) -> None:
         for project_id in list(self._sessions):

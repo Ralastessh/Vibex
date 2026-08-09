@@ -84,6 +84,7 @@ async def test_completed_run_records_git_truth(store, project):
 
     done = store.get(task.task_id)
     assert done.status is TaskStatus.COMPLETED
+    assert agent.calls[0][1] == "existing-session"
     assert [c.path for c in done.changed_files] == ["src/app.js"]
     assert done.changed_files[0].summary == "수정함"
     assert done.session_id == "s1"

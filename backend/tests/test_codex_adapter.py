@@ -17,33 +17,49 @@ REPORT = {
 }
 
 
-def events(session_id="codex-session") -> str:
+def agent_message() -> str:
     message = f"완료\n```bridge\n{json.dumps(REPORT)}\n```"
-    return "\n".join(
-        [
-            json.dumps({"type": "thread.started", "thread_id": session_id}),
-            json.dumps({"type": "turn.started"}),
-            json.dumps({
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": message},
-            }),
-            json.dumps({"type": "turn.completed"}),
-        ]
-    )
+    return message
 
 
-def fake_codex(tmp_path, output: str):
-    args_file = tmp_path / "codex-args.json"
+def fake_codex(tmp_path):
+    messages_file = tmp_path / "codex-messages.jsonl"
     script = tmp_path / "fake-codex"
     script.write_text(
         "#!/usr/bin/env python3\n"
         "import json, sys\n"
-        f"json.dump(sys.argv[1:], open({str(args_file)!r}, 'w'))\n"
-        f"sys.stdout.write({output!r})\n",
+        f"messages_file = {str(messages_file)!r}\n"
+        f"agent_message = {agent_message()!r}\n"
+        "for line in sys.stdin:\n"
+        "    message = json.loads(line)\n"
+        "    with open(messages_file, 'a') as stream:\n"
+        "        stream.write(json.dumps(message) + '\\n')\n"
+        "    method = message.get('method')\n"
+        "    request_id = message.get('id')\n"
+        "    if method == 'initialize':\n"
+        "        response = {'id': request_id, 'result': {'userAgent': 'fake'}}\n"
+        "    elif method == 'thread/start':\n"
+        "        response = {'id': request_id, 'result': {'thread': {'id': 'codex-session'}}}\n"
+        "    elif method == 'thread/resume':\n"
+        "        session_id = message['params']['threadId']\n"
+        "        response = {'id': request_id, 'result': {'thread': {'id': session_id}}}\n"
+        "    elif method == 'turn/start':\n"
+        "        session_id = message['params']['threadId']\n"
+        "        response = {'id': request_id, 'result': {'turn': {'id': 'turn-1'}}}\n"
+        "        print(json.dumps(response), flush=True)\n"
+        "        print(json.dumps({'method': 'item/completed', 'params': "
+        "{'threadId': session_id, 'turnId': 'turn-1', 'item': "
+        "{'type': 'agentMessage', 'text': agent_message}}}), flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', 'params': "
+        "{'threadId': session_id, 'turn': {'id': 'turn-1', 'status': 'completed'}}}), flush=True)\n"
+        "        continue\n"
+        "    else:\n"
+        "        continue\n"
+        "    print(json.dumps(response), flush=True)\n",
         encoding="utf-8",
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return str(script), args_file
+    return str(script), messages_file
 
 
 async def test_codex_exec_attaches_images(tmp_path):
@@ -52,15 +68,17 @@ async def test_codex_exec_attaches_images(tmp_path):
     first, second = tmp_path / "view.jpg", tmp_path / "drawing.png"
     first.write_bytes(b"a")
     second.write_bytes(b"b")
-    binary, args_file = fake_codex(tmp_path, events())
+    binary, messages_file = fake_codex(tmp_path)
 
     result = await CodexCLIAdapter(binary=binary).resume_and_run(
         repo, None, "프롬프트", image_paths=[first, second]
     )
-    args = json.loads(args_file.read_text())
-    assert args[:2] == ["exec", "--json"]
-    assert args.count("-i") == 2
-    assert str(first.resolve()) in args and str(second.resolve()) in args
+    messages = [json.loads(line) for line in messages_file.read_text().splitlines()]
+    turn = next(message for message in messages if message.get("method") == "turn/start")
+    inputs = turn["params"]["input"]
+    assert [item["type"] for item in inputs] == ["text", "localImage", "localImage"]
+    assert inputs[1]["path"] == str(first.resolve())
+    assert inputs[2]["path"] == str(second.resolve())
     assert result.ok and result.session_id == "codex-session"
     assert result.report.summary == "화면을 수정했다."
 
@@ -70,14 +88,16 @@ async def test_codex_resume_keeps_the_exact_session(tmp_path):
     (repo / ".git").mkdir(parents=True)
     image = tmp_path / "drawing.png"
     image.write_bytes(b"x")
-    binary, args_file = fake_codex(tmp_path, events("same-session"))
+    binary, messages_file = fake_codex(tmp_path)
 
     await CodexCLIAdapter(binary=binary).resume_and_run(
         repo, "same-session", "답변", image_paths=[image]
     )
-    args = json.loads(args_file.read_text())
-    assert args[:3] == ["exec", "resume", "--json"]
-    assert args[-2:] == ["same-session", "답변"]
+    messages = [json.loads(line) for line in messages_file.read_text().splitlines()]
+    resume = next(message for message in messages if message.get("method") == "thread/resume")
+    assert resume["params"]["threadId"] == "same-session"
+    turn = next(message for message in messages if message.get("method") == "turn/start")
+    assert turn["params"]["input"][0] == {"type": "text", "text": "답변"}
 
 
 async def test_finds_latest_codex_session_for_the_same_repo(tmp_path, monkeypatch):
@@ -86,27 +106,25 @@ async def test_finds_latest_codex_session_for_the_same_repo(tmp_path, monkeypatc
     root = tmp_path / "sessions"
     root.mkdir()
 
-    def rollout(name, session_id, cwd, mtime):
+    def rollout(name, session_id, cwd, mtime, source="cli"):
         path = root / f"{name}.jsonl"
         path.write_text(json.dumps({
             "type": "session_meta",
-            "payload": {"session_id": session_id, "cwd": str(cwd)},
+            "payload": {
+                "session_id": session_id, "cwd": str(cwd), "source": source
+            },
         }) + "\n", encoding="utf-8")
         os.utime(path, (mtime, mtime))
 
-    rollout("old", "old-id", repo, 1000)
+    rollout("old", "old-id", repo, 1000, source="vscode")
     rollout("other", "other-id", tmp_path / "other", 3000)
     rollout("new", "new-id", repo, 2000)
     monkeypatch.setattr("src.agents.codex_cli.sessions_root", lambda: root)
 
-    assert await CodexCLIAdapter().find_latest_session(repo) == "new-id"
+    assert await CodexCLIAdapter().find_latest_session(repo) == "old-id"
 
 
-def test_codex_jsonl_failure_is_reported():
-    output = json.dumps({"type": "thread.started", "thread_id": "s1"}) + "\n"
-    output += json.dumps({"type": "turn.failed", "error": {"message": "로그인 만료"}})
-    result = CodexCLIAdapter()._parse(
-        output, "", return_code=1, fallback_session_id=None
-    )
+def test_codex_contract_failure_is_reported():
+    result = CodexCLIAdapter()._result("s1", "계약 블록이 없는 답변")
     assert not result.ok
-    assert "로그인 만료" in result.error
+    assert "bridge" in result.error

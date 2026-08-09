@@ -1,0 +1,322 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		20E48801CF8C8E6999079BF4 /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1DEBA264-FFD0-41FC-99C9-985E1EA0C2F2" /* AnnotationCanvasView.swift */; };
+		2173B89CE94AD3E983EAF396 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_2EF1DA8C-70F4-4458-9DE7-5A10867E8A4E" /* RootView.swift */; };
+		2445AC064A361017FB081658 /* CanvasComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_13D4B57A-45A1-46B6-B225-1124C74BBED9" /* CanvasComposer.swift */; };
+		25BF4FF91DAB852123076083 /* ShapeSnap.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1C373C09-1F04-45D3-AFFD-C675F8B2EAF4" /* ShapeSnap.swift */; };
+		6AC506A63AA6CDAB27810342 /* PencilCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_4A0AF0CA-B447-4D0A-AD97-12C4A28EC6E0" /* PencilCanvas.swift */; };
+		77BEB5DE2577AFD2F5A26FB9 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_63AA2156-1C61-4D76-B802-1FA26701E94E" /* HarnessView.swift */; };
+		A16CCC2660DC33512E17DFC7 /* LivePreviewEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_211AA86D-ACA7-4881-AC30-6F9C533BD2F6" /* LivePreviewEditorView.swift */; };
+		AB9C74B6693C4523F21C2AB0 /* VibexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_AF93065A-8608-47FA-A9F9-1181F5E4EF4A" /* VibexApp.swift */; };
+		C8B95785CE2C9ACEEE041EB8 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1F1F3ECA-DFBA-47F3-8279-0F98A7051F8F" /* BridgeClient.swift */; };
+		EAC87F99EB3D99DF31478517 /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1AFF777F-5126-4AFC-BE69-B56B7788086E" /* EventStream.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		8443143F55201380A755EDB2 /* Vibex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vibex.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		"TEMP_13D4B57A-45A1-46B6-B225-1124C74BBED9" /* CanvasComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasComposer.swift; sourceTree = "<group>"; };
+		"TEMP_1AFF777F-5126-4AFC-BE69-B56B7788086E" /* EventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStream.swift; sourceTree = "<group>"; };
+		"TEMP_1C373C09-1F04-45D3-AFFD-C675F8B2EAF4" /* ShapeSnap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShapeSnap.swift; sourceTree = "<group>"; };
+		"TEMP_1DEBA264-FFD0-41FC-99C9-985E1EA0C2F2" /* AnnotationCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasView.swift; sourceTree = "<group>"; };
+		"TEMP_1F1F3ECA-DFBA-47F3-8279-0F98A7051F8F" /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		"TEMP_211AA86D-ACA7-4881-AC30-6F9C533BD2F6" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
+		"TEMP_2EF1DA8C-70F4-4458-9DE7-5A10867E8A4E" /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		"TEMP_4A0AF0CA-B447-4D0A-AD97-12C4A28EC6E0" /* PencilCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvas.swift; sourceTree = "<group>"; };
+		"TEMP_63AA2156-1C61-4D76-B802-1FA26701E94E" /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
+		"TEMP_AF93065A-8608-47FA-A9F9-1181F5E4EF4A" /* VibexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibexApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		5328E02D7EF36AF5A8348653 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8443143F55201380A755EDB2 /* Vibex.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8402EE2330281A0000DDF4DA /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_1DEBA264-FFD0-41FC-99C9-985E1EA0C2F2" /* AnnotationCanvasView.swift */,
+				"TEMP_1F1F3ECA-DFBA-47F3-8279-0F98A7051F8F" /* BridgeClient.swift */,
+				"TEMP_13D4B57A-45A1-46B6-B225-1124C74BBED9" /* CanvasComposer.swift */,
+				"TEMP_1AFF777F-5126-4AFC-BE69-B56B7788086E" /* EventStream.swift */,
+				"TEMP_63AA2156-1C61-4D76-B802-1FA26701E94E" /* HarnessView.swift */,
+				"TEMP_211AA86D-ACA7-4881-AC30-6F9C533BD2F6" /* LivePreviewEditorView.swift */,
+				"TEMP_4A0AF0CA-B447-4D0A-AD97-12C4A28EC6E0" /* PencilCanvas.swift */,
+				"TEMP_2EF1DA8C-70F4-4458-9DE7-5A10867E8A4E" /* RootView.swift */,
+				"TEMP_1C373C09-1F04-45D3-AFFD-C675F8B2EAF4" /* ShapeSnap.swift */,
+				"TEMP_AF93065A-8608-47FA-A9F9-1181F5E4EF4A" /* VibexApp.swift */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		DD68C710637FA73E797FECCE = {
+			isa = PBXGroup;
+			children = (
+				5328E02D7EF36AF5A8348653 /* Products */,
+				8402EE2330281A0000DDF4DA /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A675ED5F779372C1EE35BBC7 /* Vibex */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3219100FFB8ED59B406A2F45 /* Build configuration list for PBXNativeTarget "Vibex" */;
+			buildPhases = (
+				177EE82F71ADB1D83EE42AA4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Vibex;
+			packageProductDependencies = (
+			);
+			productName = Vibex;
+			productReference = 8443143F55201380A755EDB2 /* Vibex.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D3DF6F9D5F80DDA7A4B6B6FE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = C798100E75EAC027FF720B8F /* Build configuration list for PBXProject "Vibex" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = DD68C710637FA73E797FECCE;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5328E02D7EF36AF5A8348653 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A675ED5F779372C1EE35BBC7 /* Vibex */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		177EE82F71ADB1D83EE42AA4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20E48801CF8C8E6999079BF4 /* AnnotationCanvasView.swift in Sources */,
+				C8B95785CE2C9ACEEE041EB8 /* BridgeClient.swift in Sources */,
+				2445AC064A361017FB081658 /* CanvasComposer.swift in Sources */,
+				EAC87F99EB3D99DF31478517 /* EventStream.swift in Sources */,
+				77BEB5DE2577AFD2F5A26FB9 /* HarnessView.swift in Sources */,
+				A16CCC2660DC33512E17DFC7 /* LivePreviewEditorView.swift in Sources */,
+				6AC506A63AA6CDAB27810342 /* PencilCanvas.swift in Sources */,
+				2173B89CE94AD3E983EAF396 /* RootView.swift in Sources */,
+				25BF4FF91DAB852123076083 /* ShapeSnap.swift in Sources */,
+				AB9C74B6693C4523F21C2AB0 /* VibexApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3B3C3B8715D56E64E3831A31 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		474ED41FF01448075D75BE79 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		99190836DBE94F09F151FC85 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D5QAJTL57J;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hansangcharim.vibex;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		E48DC1A56FF41E5817312D0B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D5QAJTL57J;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hansangcharim.vibex;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3219100FFB8ED59B406A2F45 /* Build configuration list for PBXNativeTarget "Vibex" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				99190836DBE94F09F151FC85 /* Debug */,
+				E48DC1A56FF41E5817312D0B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C798100E75EAC027FF720B8F /* Build configuration list for PBXProject "Vibex" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				474ED41FF01448075D75BE79 /* Debug */,
+				3B3C3B8715D56E64E3831A31 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D3DF6F9D5F80DDA7A4B6B6FE /* Project object */;
+}
