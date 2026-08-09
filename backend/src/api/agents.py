@@ -34,6 +34,6 @@ def list_agents(request: Request) -> AgentListResponse:
                 installed=info.installed,
                 verified=info.verified,
                 note=info.note)
-            for info in available_agents(settings.claude_binary)
+            for info in available_agents(settings.claude_binary, settings.codex_binary)
         ]
     )

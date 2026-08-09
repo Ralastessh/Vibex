@@ -25,5 +25,6 @@ class AgentAdapter(Protocol):
         prompt: str,
         *,
         test_commands: list[str] | None = None,
+        image_paths: list[Path] | None = None,
     ) -> AgentRunResult:
         """세션을 재개해 한 작업 단위를 실행"""

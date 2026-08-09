@@ -71,6 +71,7 @@ def settings(tmp_path, repo) -> Settings:
         _env_file=None,
         device_token=TOKEN,
         projects_file=registry_file,
+        task_assets_root=tmp_path / "task-assets",
     )
 
 

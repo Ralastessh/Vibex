@@ -46,7 +46,10 @@ class ClaudeCodeAdapter:
         return sessions[0].stem
 
     # 세부 설정
-    def _command(self, prompt: str, session_id: str | None, test_commands: list[str] | None) -> list[str]:
+    def _command(
+        self, prompt: str, session_id: str | None,
+        test_commands: list[str] | None, image_paths: list[Path] | None = None
+    ) -> list[str]:
         command = [self._binary, "-p", prompt, "--output-format", "json"]
 
         if session_id:
@@ -54,8 +57,14 @@ class ClaudeCodeAdapter:
             command += ["--resume", session_id]
         command += ["--permission-mode", "acceptEdits"]
 
-        if test_commands:
-            command += ["--allowedTools", ",".join(f"Bash({c}:*)" for c in test_commands)]
+        preapproved = ["Read"] if image_paths else []
+        preapproved += [f"Bash({c}:*)" for c in (test_commands or [])]
+        if preapproved:
+            command += ["--allowedTools", ",".join(preapproved)]
+
+        if image_paths:
+            parents = list(dict.fromkeys(str(p.resolve().parent) for p in image_paths))
+            command += ["--add-dir", *parents]
 
         if self._max_budget_usd is not None:
             command += ["--max-budget-usd", str(self._max_budget_usd)]
@@ -68,13 +77,19 @@ class ClaudeCodeAdapter:
         session_id: str | None,
         prompt: str,
         *,
-        test_commands: list[str] | None = None) -> AgentRunResult:
+        test_commands: list[str] | None = None,
+        image_paths: list[Path] | None = None) -> AgentRunResult:
         if shutil.which(self._binary) is None and not Path(self._binary).exists():
             return AgentRunResult(
                 error=f"Claude Code 실행 파일을 찾을 수 없습니다: {self._binary}"
             )
 
-        command = self._command(prompt, session_id, test_commands)
+        if image_paths:
+            attachment_context = "첨부 이미지 파일:\n" + "\n".join(
+                f"{index}. {path.resolve()}" for index, path in enumerate(image_paths, 1)
+            )
+            prompt = f"{attachment_context}\n\n{prompt}"
+        command = self._command(prompt, session_id, test_commands, image_paths)
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=repo_path,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
+import tempfile
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -16,13 +17,13 @@ class Settings(BaseSettings):
     workspace_root: Path | None = None
     # 향후 다양한 모델 지원 예정
     claude_binary: str = "claude"
+    codex_binary: str = "codex"
     agent_timeout_seconds: float = 1800.0
-    # API 키는 숨기기
-    openai_api_key: str = ""
-    vision_model: str = "gpt-5.5"
-    vision_timeout_seconds: float = 120.0
     max_budget_usd: float = 2.0
     max_image_bytes: int = 32 * 1024 * 1024
+    task_assets_root: Path = Path(tempfile.gettempdir()) / "vibex-task-assets"
+    preview_start_timeout_seconds: float = 20.0
+    preview_public_host: str = ""
 
     @property
     def max_upload_bytes(self) -> int:

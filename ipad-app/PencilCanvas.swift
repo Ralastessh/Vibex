@@ -24,6 +24,7 @@ struct PencilCanvas: UIViewRepresentable {
     /// 손가락 입력 허용. 기본값은 꺼짐 — 켜면 손바닥이 닿는 순간 획이 그려진다.
     /// 펜슬이 없는 시뮬레이터에서 시험할 때만 켠다.
     var allowFingerDrawing = false
+    var isActive = true
 
     func makeUIView(context: Context) -> PKCanvasView {
         // 팜 리젝션은 펜만 받는 것으로 얻는다.
@@ -35,9 +36,9 @@ struct PencilCanvas: UIViewRepresentable {
         // 도구 피커(색·굵기·도구) 띄우기
         let picker = context.coordinator.toolPicker
         DispatchQueue.main.async {
-            picker.setVisible(true, forFirstResponder: canvasView)
+            picker.setVisible(isActive, forFirstResponder: canvasView)
             picker.addObserver(canvasView)
-            canvasView.becomeFirstResponder()
+            if isActive { canvasView.becomeFirstResponder() }
         }
         return canvasView
     }
@@ -45,6 +46,12 @@ struct PencilCanvas: UIViewRepresentable {
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
         context.coordinator.shapeSnapEnabled = shapeSnapEnabled
         uiView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
+        context.coordinator.toolPicker.setVisible(isActive, forFirstResponder: uiView)
+        if isActive {
+            uiView.becomeFirstResponder()
+        } else {
+            uiView.resignFirstResponder()
+        }
     }
 
     func makeCoordinator() -> Coordinator {

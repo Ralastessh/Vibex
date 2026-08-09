@@ -1,13 +1,12 @@
 from __future__ import annotations
 import logging
+from pathlib import Path
 from src.agents.base import AgentAdapter
 from src.agents.contract import without_block
 from src.projects import git
 from src.projects.registry import Project
 from src.tasks.models import ChangedFile, TaskStatus
 from src.tasks.store import TaskStore
-from src.vision.openai import VisionError
-from src.vision.validate import UnsafeCommandError, validate
 
 logger = logging.getLogger("bridge.runner")
 
@@ -22,39 +21,6 @@ def _reply(result) -> str | None:
         return text
     return text[:MAX_REPLY_CHARS] + "\n…(이후 생략)"
 
-async def interpret_task(
-    *,
-    task_id: str,
-    canvas_image: bytes,
-    base_image: bytes | None,
-    typed_note: str | None,
-    provider,
-    store: TaskStore) -> None:
-    store.update(task_id, status=TaskStatus.INTERPRETING)
-
-    try:
-        command = await provider.interpret(canvas_image, base_image, typed_note)
-    except VisionError as exc:
-        # 이미지 분석 실패 시 재시도
-        store.update(task_id, status=TaskStatus.FAILED, error=str(exc))
-        return
-
-    try:
-        # 모델 출력 검증용
-        validate(command)
-    except UnsafeCommandError as exc:
-        store.update(
-            task_id, status=TaskStatus.FAILED, error=str(exc), interpretation=command
-        )
-        return
-
-    store.update(
-        task_id,
-        status=TaskStatus.AWAITING_CONFIRMATION,
-        interpretation=command,
-        summary=command.summary,
-    )
-
 # 그림 프롬포트 전달 이후 LLM의 답변 생성
 async def run_task(
     *,
@@ -62,19 +28,34 @@ async def run_task(
     project: Project,
     prompt: str,
     adapter: AgentAdapter,
-    store: TaskStore) -> None:
+    store: TaskStore,
+    session_id: str | None = None,
+    image_paths: list[Path] | None = None,
+    asset_store=None) -> None:
+    """session_id를 주면 그 세션을 이어간다.
 
+    되물음에 답할 때처럼 이미 대화가 시작된 작업은 반드시 넘겨야 한다.
+    넘기지 않으면 mtime이 가장 최신인 세션을 새로 고르는데, 그 사이 다른
+    세션이 건드려졌으면 엉뚱한 대화에 답이 들어간다.
+    """
     try:
         await _run(
-            task_id=task_id, project=project, prompt=prompt, adapter=adapter, store=store
+            task_id=task_id, project=project, prompt=prompt, adapter=adapter,
+            store=store, session_id=session_id, image_paths=image_paths
         )
     except Exception as exc:
         logger.exception("작업 %s 실행 중 예기치 못한 오류", task_id)
+        current = store.get(task_id)
+        if current is not None and current.status is TaskStatus.CANCELLED:
+            return
         store.update(
             task_id,
             status=TaskStatus.FAILED,
             error=f"실행 중 오류가 발생했습니다: {exc}",
         )
+    finally:
+        if asset_store is not None and image_paths:
+            asset_store.cleanup(image_paths)
 
 async def _run(
     *,
@@ -83,6 +64,8 @@ async def _run(
     prompt: str,
     adapter: AgentAdapter,
     store: TaskStore,
+    session_id: str | None = None,
+    image_paths: list[Path] | None = None,
 ) -> None:
     try:
         # 실행 전 상태를 기록
@@ -98,8 +81,11 @@ async def _run(
             "보존 여부를 확인하세요."
         )
 
-    store.update(task_id, status=TaskStatus.RESOLVING_SESSION)
-    session_id = await adapter.find_latest_session(project.repo_path)
+    if session_id is None:
+        store.update(task_id, status=TaskStatus.RESOLVING_SESSION)
+        session_id = await adapter.find_latest_session(project.repo_path)
+    else:
+        logger.info("작업 %s: 기록된 세션을 이어갑니다 — %s", task_id, session_id)
 
     store.update(task_id, status=TaskStatus.RUNNING_AGENT, session_id=session_id or "")
     result = await adapter.resume_and_run(
@@ -107,7 +93,13 @@ async def _run(
         session_id,
         prompt,
         test_commands=project.test_commands,
+        image_paths=image_paths,
     )
+
+    # CLI 프로세스가 끝나기 전에 사용자가 취소했으면 결과가 취소 상태를 덮지 않는다.
+    current = store.get(task_id)
+    if current is not None and current.status is TaskStatus.CANCELLED:
+        return
 
     try:
         after = git.snapshot(project.repo_path)

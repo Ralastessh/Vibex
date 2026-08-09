@@ -1,8 +1,8 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 from pydantic import BaseModel, Field
-from src.vision.schema import ProjectCommand
 
 # 현재 작업 상태에 대한 정보 -> 추후 작업이 끊겨도 지속적으로 확인 가능
 class TaskStatus(str, Enum):
@@ -46,10 +46,21 @@ class QuestionOption(BaseModel):
     label: str
     model_config = {"populate_by_name": True}
 
+class OverlayTarget(BaseModel):
+    """라이브 프론트엔드 위에 표시할 정규화 좌표(0~1)."""
+
+    shape: Literal["rectangle", "ellipse", "capsule"] = "rectangle"
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+    label: str = ""
+
 class Question(BaseModel):
     question_id: str = Field(alias="questionId")
     text: str
     options: list[QuestionOption] = Field(default_factory=list)
+    overlay: OverlayTarget | None = None
     model_config = {"populate_by_name": True}
 
 def _now() -> datetime:
@@ -64,8 +75,6 @@ class Task(BaseModel):
 
     client_task_id: str | None = Field(default=None, alias="clientTaskId")
     session_id: str | None = Field(default=None, alias="sessionId")
-    #: §8 Vision 해석 결과. iPad의 Confirmation 화면(§19)이 이걸 보여준다.
-    interpretation: ProjectCommand | None = None
     summary: str | None = None
 
     agent_reply: str | None = Field(default=None, alias="agentReply")

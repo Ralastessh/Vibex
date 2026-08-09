@@ -1,11 +1,10 @@
 import PencilKit
 import UIKit
 
-/// 스크린샷 배경과 손그림 주석을 이미지로 내보낸다.
+/// 실제 WKWebView 렌더와 손그림 주석을 이미지로 내보낸다.
 ///
-/// 서버는 배경(`baseImage`)과 획(`canvasImage`)을 **따로** 받아서, 획이 배경 위에
-/// 겹쳐 그려진 것으로 보고 해석한다. 그래서 두 장은 반드시 같은 좌표계·같은
-/// 픽셀 크기여야 한다 — 한 장으로 합쳐 보내면 그 전제가 깨진다.
+/// 서버는 렌더(`renderedViewImage`)와 획(`canvasImage`)을 **따로** 저장한 뒤
+/// 선택된 PC LLM CLI 세션에 직접 첨부한다. 두 장은 같은 좌표계·픽셀 크기다.
 enum CanvasComposer {
 
     /// 업로드 한 장의 최대 변(픽셀). 서버 상한은 넉넉하지만, 큰 이미지는
@@ -21,7 +20,7 @@ enum CanvasComposer {
     /// 서버로 보낼 두 장. 같은 rect를 같은 배율로 렌더한 결과다.
     struct Snapshot {
         let canvas: ImagePayload        // 획만. 투명 배경 PNG.
-        let base: ImagePayload?         // 배경 스크린샷. 화면에 보이는 그대로 크롭.
+        let base: ImagePayload?         // 현재 라이브 렌더. 전송 순간 자동 캡처.
         let pixelSize: CGSize
     }
 
@@ -73,7 +72,7 @@ enum CanvasComposer {
     // MARK: - 미리보기·저장용
 
     /// 배경과 획을 한 장으로 합친다. 화면 미리보기나 로컬 저장에 쓴다.
-    /// 서버 전송에는 쓰지 말 것 — `snapshot(...)`을 쓴다.
+    /// 서버 전송에는 쓰지 말 것 — 렌더와 획을 분리하는 `snapshot(...)`을 쓴다.
     static func compose(
         background: UIImage,
         drawing: PKDrawing,

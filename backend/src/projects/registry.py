@@ -10,6 +10,8 @@ class Project(BaseModel):
     enabled: bool = True
     agent: str = "claude-code"
     test_commands: list[str] = Field(default_factory=list, alias="testCommands")
+    preview_command: list[str] = Field(default_factory=list, alias="previewCommand")
+    preview_port: int | None = Field(default=None, alias="previewPort", ge=1024, le=65535)
 
     model_config = {"populate_by_name": True}
 

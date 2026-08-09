@@ -4,6 +4,7 @@ import shutil
 from dataclasses import dataclass
 from src.agents.base import AgentAdapter
 from src.agents.claude_code import ClaudeCodeAdapter
+from src.agents.codex_cli import CodexCLIAdapter
 
 
 @dataclass(frozen=True)
@@ -24,16 +25,22 @@ class AgentInfo:
 _CANDIDATES = (
     ("claude-code", "Claude Code", "claude", True,
      "실측 검증 완료 (docs/claude-code-adapter.md)"),
-    ("codex-cli", "Codex CLI", "codex", False,
-     "CLI 설치 후 세션·resume·출력 형식 실측 검증이 필요합니다."),
+    ("codex-cli", "Codex (ChatGPT)", "codex", True,
+     "이미지 첨부·세션 resume·JSONL 출력 지원"),
     ("gemini-cli", "Gemini CLI", "gemini", False,
      "CLI 설치 후 세션·resume·출력 형식 실측 검증이 필요합니다."),
 )
 
-def available_agents(claude_binary: str = "claude") -> list[AgentInfo]:
+def available_agents(
+    claude_binary: str = "claude", codex_binary: str = "codex"
+) -> list[AgentInfo]:
     infos = []
     for agent_id, name, binary, verified, note in _CANDIDATES:
-        resolved = claude_binary if agent_id == "claude-code" else binary
+        resolved = (
+            claude_binary if agent_id == "claude-code"
+            else codex_binary if agent_id == "codex-cli"
+            else binary
+        )
         infos.append(
             AgentInfo(
                 agent_id=agent_id,
@@ -51,13 +58,20 @@ class UnsupportedAgentError(RuntimeError):
     """아직 검증되지 않았거나 설치되지 않은 에이전트"""
 
 def build_adapter(agent_id: str, settings) -> AgentAdapter:
-    if agent_id != "claude-code":
-        info = next((a for a in available_agents() if a.agent_id == agent_id), None)
+    if agent_id == "claude-code":
+        return ClaudeCodeAdapter(
+            binary=settings.claude_binary,
+            max_budget_usd=settings.max_budget_usd,
+            timeout_seconds=settings.agent_timeout_seconds,
+        )
+    if agent_id == "codex-cli":
+        return CodexCLIAdapter(
+            binary=settings.codex_binary,
+            timeout_seconds=settings.agent_timeout_seconds,
+        )
+    else:
+        info = next((a for a in available_agents(
+            settings.claude_binary, settings.codex_binary
+        ) if a.agent_id == agent_id), None)
         detail = info.note if info else "알 수 없는 에이전트입니다."
         raise UnsupportedAgentError(f"{agent_id}: {detail}")
-
-    return ClaudeCodeAdapter(
-        binary=settings.claude_binary,
-        max_budget_usd=settings.max_budget_usd,
-        timeout_seconds=settings.agent_timeout_seconds,
-    )
