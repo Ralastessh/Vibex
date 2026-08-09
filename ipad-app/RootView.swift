@@ -13,7 +13,7 @@ final class AppModel: ObservableObject {
     @Published var error: String?
 
     private var baseURLText: String {
-        UserDefaults.standard.string(forKey: "bridgeBaseURL") ?? "http://127.0.0.1:8000"
+        UserDefaults.standard.string(forKey: "bridgeBaseURL") ?? "http://127.0.0.1:8787"
     }
     private var token: String {
         UserDefaults.standard.string(forKey: "bridgeToken") ?? ""
@@ -25,7 +25,7 @@ final class AppModel: ObservableObject {
 
     var client: BridgeClient {
         let url = URL(string: baseURLText.trimmingCharacters(in: .whitespaces))
-            ?? URL(string: "http://127.0.0.1:8000")!
+            ?? URL(string: "http://127.0.0.1:8787")!
         return BridgeClient(baseURL: url, deviceToken: token)
     }
 
@@ -75,7 +75,7 @@ struct RootView: View {
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("bridgeBaseURL") private var baseURL = "http://127.0.0.1:8000"
+    @AppStorage("bridgeBaseURL") private var baseURL = "http://127.0.0.1:8787"
     @AppStorage("bridgeToken") private var token = ""
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
 
@@ -83,11 +83,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("iMac 연결") {
-                    TextField("http://100.x.x.x:8000", text: $baseURL)
+                    TextField("http://100.x.x.x:8787", text: $baseURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                     SecureField("기기 토큰", text: $token)
+                    Text("서버 주소만 입력하세요. /api/v1/health는 생략해도 됩니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Section("캔버스") {
                     Toggle("손가락으로 그리기(시뮬레이터용)", isOn: $allowFingerDrawing)

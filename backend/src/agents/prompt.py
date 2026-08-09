@@ -8,8 +8,7 @@ CONSTRAINTS = (
     "기존 사용자의 미커밋 변경사항을 보존한다.",
     "중요한 제품 결정이 필요한 경우 추측하지 말고 질문한다.")
 
-_RESUMED = "현재 프로젝트의 기존 LLM CLI 세션을 이어서 작업한다."
-_FRESH = "현재 프로젝트에서 새로 작업을 시작한다."
+_SESSION_CONTEXT = "현재 프로젝트에 연결된 LLM 세션에서 작업한다."
 
 
 def build(
@@ -23,7 +22,10 @@ def build(
     test_commands가 비어 있으면 테스트 실행을 지시하지 않음. 실행할 수 없는 것을
     지시하면 모델이 권한 거부에 부딪히거나 결과를 지어냄.
     """
-    lines = [_RESUMED if resumed else _FRESH, ""]
+    # 실제 resume/new 결정은 실행 직전에 runner가 한다. 프롬프트를 먼저 만든 뒤
+    # 다른 세션이 생겨도 설명이 거짓이 되지 않도록 중립적으로 표현한다.
+    del resumed
+    lines = [_SESSION_CONTEXT, ""]
 
     if context:
         lines += [context.strip(), ""]
@@ -77,4 +79,4 @@ def build_visual(*, typed_note: str | None, test_commands: list[str] | None) -> 
         "응답한다. 화면 요소에 관한 질문은 overlay에 현재 렌더 기준 정규화 좌표와 "
         "도형을 넣어 iPad가 해당 위치에 선택지를 표시할 수 있게 한다."
     )
-    return build([request], resumed=True, context=context, test_commands=test_commands)
+    return build([request], resumed=False, context=context, test_commands=test_commands)

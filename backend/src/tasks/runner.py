@@ -32,12 +32,7 @@ async def run_task(
     session_id: str | None = None,
     image_paths: list[Path] | None = None,
     asset_store=None) -> None:
-    """session_id를 주면 그 세션을 이어간다.
-
-    되물음에 답할 때처럼 이미 대화가 시작된 작업은 반드시 넘겨야 한다.
-    넘기지 않으면 mtime이 가장 최신인 세션을 새로 고르는데, 그 사이 다른
-    세션이 건드려졌으면 엉뚱한 대화에 답이 들어간다.
-    """
+    """기록된 세션 또는 같은 프로젝트의 기존 세션을 이어서 작업한다."""
     try:
         await _run(
             task_id=task_id, project=project, prompt=prompt, adapter=adapter,
@@ -84,8 +79,11 @@ async def _run(
     if session_id is None:
         store.update(task_id, status=TaskStatus.RESOLVING_SESSION)
         session_id = await adapter.find_latest_session(project.repo_path)
-    else:
+
+    if session_id is not None:
         logger.info("작업 %s: 기록된 세션을 이어갑니다 — %s", task_id, session_id)
+    else:
+        logger.info("작업 %s: 이 프로젝트에 세션이 없어 새 세션을 시작합니다.", task_id)
 
     store.update(task_id, status=TaskStatus.RUNNING_AGENT, session_id=session_id or "")
     result = await adapter.resume_and_run(

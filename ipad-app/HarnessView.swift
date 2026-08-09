@@ -5,7 +5,7 @@ import UIKit
 /// 개발용 시험 화면. 실기기에서 캔버스·전송 계층만 빠르게 만져 볼 때 쓴다.
 /// 실제 흐름은 RootView에 있으므로 앱 진입점은 아니다.
 struct HarnessView: View {
-    @AppStorage("bridgeBaseURL") private var baseURLText = "http://127.0.0.1:8000"
+    @AppStorage("bridgeBaseURL") private var baseURLText = "http://127.0.0.1:8787"
     @AppStorage("bridgeToken") private var token = ""
     @AppStorage("bridgeProjectId") private var projectId = "demo"
     /// 시뮬레이터에는 펜슬이 없어 기본값(펜만 허용)으로는 그릴 수 없다.

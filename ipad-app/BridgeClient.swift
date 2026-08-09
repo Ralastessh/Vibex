@@ -127,6 +127,27 @@ struct BridgeClient {
 
     private static let prefix = "api/v1"
 
+    /// 사용자가 연결 확인에 쓴 `/api/v1/health` 주소를 그대로 붙여 넣더라도
+    /// API 경로가 중복되지 않게 PC 서버의 루트 URL로 되돌린다.
+    private var serverRootURL: URL {
+        guard var components = URLComponents(
+            url: baseURL, resolvingAgainstBaseURL: false
+        ) else { return baseURL }
+
+        var segments = components.path.split(separator: "/").map(String.init)
+        if let apiIndex = segments.indices.first(where: { index in
+            segments[index].lowercased() == "api"
+                && segments.indices.contains(index + 1)
+                && segments[index + 1].lowercased() == "v1"
+        }) {
+            segments = Array(segments[..<apiIndex])
+        }
+        components.path = segments.isEmpty ? "" : "/" + segments.joined(separator: "/")
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? baseURL
+    }
+
     // MARK: 프로젝트
 
     func listProjects() async throws -> [ProjectView] {
@@ -225,7 +246,7 @@ struct BridgeClient {
     ) -> URLRequest {
         // 쿼리는 반드시 URLComponents로 붙인다. path에 "?"를 섞으면
         // appendingPathComponent가 그것까지 퍼센트 인코딩해 URL이 깨진다.
-        let url = baseURL.appendingPathComponent("\(Self.prefix)/\(path)")
+        let url = serverRootURL.appendingPathComponent("\(Self.prefix)/\(path)")
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         if !query.isEmpty { components?.queryItems = query }
 

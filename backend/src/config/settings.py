@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     max_budget_usd: float = 2.0
     max_image_bytes: int = 32 * 1024 * 1024
     task_assets_root: Path = Path(tempfile.gettempdir()) / "vibex-task-assets"
-    preview_start_timeout_seconds: float = 20.0
+    # 첫 Vite 실행은 dependency pre-bundle 때문에 느릴 수 있다.
+    preview_start_timeout_seconds: float = 180.0
     preview_public_host: str = ""
 
     @property

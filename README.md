@@ -51,10 +51,10 @@ WKWebView 라이브 UI ◀──────────────────
 │ Claude/Codex Adapter        │
 └──────────────┬──────────────┘
                │
-       subprocess / CLI
+   subprocess / CLI · App Server
                │
 ┌──────────────▼──────────────┐
-│ Claude Code 또는 Codex CLI  │
+│ Claude Code 또는 Codex       │
 │ Existing Repository/Session │
 └─────────────────────────────┘
 ```
@@ -102,7 +102,14 @@ WKWebView 라이브 UI ◀──────────────────
 | 원격 연결 | Tailscale |
 
 OpenAI Platform API나 `OPENAI_API_KEY`는 사용하지 않습니다. Codex를 선택한
-프로젝트는 PC에 로그인되어 있는 Codex CLI 세션을 사용합니다.
+프로젝트는 PC에 로그인되어 있는 Codex와 공식 App Server로 통신합니다. 저장소의
+정확한 경로가 일치하는 기존 thread를 찾고, VS Code에서 만든 thread를 우선해
+재개합니다. 일치하는 thread가 없을 때만 새 thread를 만듭니다. 새 thread 역시
+Codex의 공용 로컬 세션 저장소에 남으므로 이후 PC에서 이어갈 수 있습니다.
+
+같은 thread가 VS Code나 터미널에서 이미 응답을 생성 중이면 두 실행 주체가 동시에
+쓰지 않도록 iPad 요청은 실패 처리됩니다. 현재 응답이 끝난 뒤 다시 전송하면 같은
+thread를 재개하며, 충돌을 피하려고 별도의 대화를 임의로 만들지는 않습니다.
 
 ## 프로젝트 설정
 
@@ -126,6 +133,33 @@ OpenAI Platform API나 `OPENAI_API_KEY`는 사용하지 않습니다. Codex를 �
 Vite/Next 프로젝트는 `package.json`의 `dev` 스크립트를 자동 탐지하므로
 `previewCommand`를 생략할 수 있습니다. iPad는 Bridge 주소에 사용한 PC/Tailscale
 호스트와 프리뷰 포트를 조합해 직접 접속합니다.
+
+## PC Bridge 실행
+
+처음 한 번 백엔드 가상환경을 준비합니다.
+
+```bash
+python3 -m venv backend/.venv
+backend/.venv/bin/pip install -r requirements.txt
+```
+
+`backend/.env`에는 OpenAI 키 없이 기기 토큰과 새 프로젝트 생성 위치만 둡니다.
+
+```dotenv
+BRIDGE_DEVICE_TOKEN=충분히-긴-임의-문자열
+BRIDGE_WORKSPACE_ROOT=/Users/사용자/Desktop/Vibex/test-projects
+```
+
+그다음 PC에서 Bridge를 실행합니다.
+
+```bash
+cd backend
+.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8787
+```
+
+iPad 앱에는 `http://PC의-Tailscale-IP:8787`과 같은 Bridge 주소와 동일한 기기
+토큰을 입력합니다. `projects.local.json`을 바꾼 뒤에는 레지스트리를 다시 읽도록
+Bridge를 재시작해야 합니다.
 
 ```
 src/             PC와 태블릿PC 간 연결 오픈소스

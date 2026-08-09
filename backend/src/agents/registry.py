@@ -26,7 +26,7 @@ _CANDIDATES = (
     ("claude-code", "Claude Code", "claude", True,
      "실측 검증 완료 (docs/claude-code-adapter.md)"),
     ("codex-cli", "Codex (ChatGPT)", "codex", True,
-     "이미지 첨부·세션 resume·JSONL 출력 지원"),
+     "App Server 기반 이미지 첨부·VS Code/CLI 공용 thread resume 지원"),
     ("gemini-cli", "Gemini CLI", "gemini", False,
      "CLI 설치 후 세션·resume·출력 형식 실측 검증이 필요합니다."),
 )
