@@ -1,7 +1,6 @@
-import PhotosUI
 import SwiftUI
 
-// 앱 흐름: 목록 → 스크린샷 → 캔버스 → 작업 상태.
+// 앱 흐름: 목록 → PC 라이브 프론트엔드 → 드로잉 → 작업 상태.
 
 extension TaskCreated: Identifiable {
     var id: String { taskId }
@@ -155,48 +154,48 @@ struct ProjectListView: View {
     }
 }
 
-// MARK: - 스크린샷 선택 → 캔버스
+// MARK: - PC 라이브 프론트엔드 → 캔버스
 
 struct ComposeView: View {
     @ObservedObject var model: AppModel
     let project: ProjectView
 
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var screenshot: UIImage?
-    @State private var created: TaskCreated?
+    @State private var preview: PreviewView?
+    @State private var loading = false
+    @State private var errorText: String?
 
     var body: some View {
         Group {
-            if let screenshot {
-                AnnotationCanvasView(
+            if let preview {
+                LivePreviewEditorView(
+                    model: model,
                     projectId: project.projectId,
-                    screenshot: screenshot,
-                    client: model.client,
+                    previewURL: preview.url,
                     allowFingerDrawing: allowFingerDrawing
-                ) { created in
-                    self.created = created
-                }
+                )
             } else {
                 VStack(spacing: 16) {
-                    Text("수정할 화면을 고르세요.").foregroundStyle(.secondary)
-                    PhotosPicker("스크린샷 선택", selection: $pickerItem, matching: .images)
-                        .buttonStyle(.borderedProminent)
-                    Button("샘플 화면으로 시험") { screenshot = SampleScreenshot.loginScreen() }
-                        .buttonStyle(.bordered)
+                    if loading { ProgressView("PC에서 프론트엔드를 시작하는 중…") }
+                    if let errorText { Text(errorText).foregroundStyle(.red) }
+                    Button("다시 시작") { Task { await startPreview() } }
+                        .buttonStyle(.borderedProminent).disabled(loading)
                 }
             }
         }
         .navigationTitle(project.displayName)
-        .onChange(of: pickerItem) { item in
-            Task {
-                if let data = try? await item?.loadTransferable(type: Data.self),
-                   let img = UIImage(data: data) {
-                    screenshot = img
-                }
-            }
+        .task(id: project.projectId) { await startPreview() }
+    }
+
+    private func startPreview() async {
+        loading = true
+        defer { loading = false }
+        do {
+            preview = try await model.client.startPreview(projectId: project.projectId)
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
         }
-        .sheet(item: $created) { TaskStatusView(model: model, taskId: $0.taskId) }
     }
 }
 
@@ -222,22 +221,6 @@ struct TaskStatusView: View {
                         Section("에이전트") { Text(reply) }
                     }
 
-                    if needsConfirmation(task), let c = task.interpretation {
-                        Section("해석 결과") {
-                            Text(c.summary)
-                            Text("신뢰도 \(Int(c.overallConfidence * 100))%")
-                                .font(.caption).foregroundStyle(.secondary)
-                            HStack {
-                                Button("승인") {
-                                    act { _ = try await model.client.confirm(taskId, approved: true) }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                Button("취소", role: .destructive) {
-                                    act { _ = try await model.client.confirm(taskId, approved: false) }
-                                }
-                            }
-                        }
-                    }
                     if task.status == .awaitingConfirmation, !task.questions.isEmpty {
                         ForEach(task.questions) { q in
                             Section(q.text) {
@@ -289,10 +272,6 @@ struct TaskStatusView: View {
         }
     }
 
-    private func needsConfirmation(_ task: TaskView) -> Bool {
-        task.status == .awaitingConfirmation && task.interpretation != nil && task.questions.isEmpty
-    }
-
     // 끝날 때까지 폴링.
     private func poll() async {
         while !Task.isCancelled {
@@ -319,7 +298,7 @@ struct TaskStatusView: View {
     private func statusLabel(_ s: TaskStatus) -> String {
         switch s {
         case .queued: return "대기 중"
-        case .interpreting: return "그림 해석 중…"
+        case .interpreting: return "이미지 준비 중…"
         case .awaitingConfirmation: return "확인 필요"
         case .resolvingSession: return "세션 준비 중…"
         case .runningAgent: return "코드 수정 중…"

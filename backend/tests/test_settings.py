@@ -43,7 +43,7 @@ def test_settings_can_ignore_env_files_entirely():
     """
     settings = Settings(_env_file=None, device_token="t")
     assert settings.workspace_root is None
-    assert settings.openai_api_key == ""
+    assert settings.codex_binary == "codex"
 
 
 def test_environment_variable_wins(monkeypatch):
@@ -84,13 +84,13 @@ def test_later_env_file_overrides_earlier(tmp_path):
     """계층 규칙: 뒤에 오는 파일이 앞의 값을 덮어쓴다."""
     wide = tmp_path / "wide.env"
     narrow = tmp_path / "narrow.env"
-    wide.write_text("BRIDGE_DEVICE_TOKEN=wide\nBRIDGE_VISION_MODEL=a\n", encoding="utf-8")
+    wide.write_text("BRIDGE_DEVICE_TOKEN=wide\nBRIDGE_CODEX_BINARY=my-codex\n", encoding="utf-8")
     narrow.write_text("BRIDGE_DEVICE_TOKEN=narrow\n", encoding="utf-8")
 
     settings = Settings(_env_file=(wide, narrow))
     assert settings.device_token == "narrow"
     # 덮어쓰지 않은 값은 앞 파일에서 그대로 온다
-    assert settings.vision_model == "a"
+    assert settings.codex_binary == "my-codex"
 
 
 def test_env_file_is_not_committed():

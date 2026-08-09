@@ -8,9 +8,10 @@ from src.agents.registry import available_agents
 from src.api import tasks
 from src.config.settings import Settings, get_settings
 from src.projects.registry import ProjectRegistry
+from src.projects.preview import PreviewManager
 from src.tasks.events import EventBroker, status_event
+from src.tasks.assets import TaskAssetStore
 from src.tasks.store import TaskStore
-from src.vision.openai import OpenAIVisionProvider
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("bridge")
@@ -27,7 +28,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         app.state.settings = settings
         app.state.registry = ProjectRegistry.load(settings.projects_file)
+        app.state.previews = PreviewManager(
+            start_timeout=settings.preview_start_timeout_seconds
+        )
         app.state.events = EventBroker()
+        app.state.task_assets = TaskAssetStore(settings.task_assets_root)
         # 모든 상태 전이가 update를 지나므로 여기서 발행하면 이벤트를 놓치지 않는다(§12.8).
         app.state.tasks = TaskStore(
             on_change=lambda task: app.state.events.publish(
@@ -36,23 +41,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         # 테스트가 여기에 가짜를 끼워 넣으면 그것이 우선
         app.state.adapter = None
-        # §8 드로잉 해석. 키가 없으면 텍스트 명령만 동작한다 — 서버는 뜬다.
-        app.state.vision = (
-            OpenAIVisionProvider(
-                settings.openai_api_key,
-                model=settings.vision_model,
-                timeout=settings.vision_timeout_seconds,
-            )
-            if settings.openai_api_key.strip()
-            else None
-        )
-        if app.state.vision is None:
-            logger.warning("BRIDGE_OPENAI_API_KEY 없음 — 드로잉 해석이 비활성입니다.")
-
         # 실행 중인 백그라운드 작업 참조를 붙잡아 놓으면 GC가 취소
         app.state.running = set()
 
-        usable = [a.display_name for a in available_agents(settings.claude_binary) if a.usable]
+        usable = [
+            a.display_name for a in available_agents(
+                settings.claude_binary, settings.codex_binary
+            ) if a.usable
+        ]
         logger.info("사용 가능한 에이전트: %s", ", ".join(usable) or "(없음)")
         if settings.workspace_root is None:
             logger.warning(
@@ -70,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await app.state.previews.close()
             app.state.tasks.close()
 
     app = FastAPI(

@@ -34,6 +34,8 @@ struct ProjectView: Decodable, Identifiable {
     let status: Status
     let activeTaskId: String?
     let reason: String?
+    let agent: String
+    let previewAvailable: Bool
 
     var id: String { projectId }
 }
@@ -45,25 +47,26 @@ struct QuestionOption: Decodable, Identifiable {
     let label: String
     var id: String { optionId }
 }
+struct OverlayTarget: Decodable {
+    let shape: String
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    let label: String
+}
 struct Question: Decodable, Identifiable {
     let questionId: String
     let text: String
     let options: [QuestionOption]
+    let overlay: OverlayTarget?
     var id: String { questionId }
 }
 
-/// 승인 화면이 보여줄 해석 결과. 서버의 `ProjectCommand` 중 화면에 필요한 것만.
-struct Interpretation: Decodable {
-    struct Change: Decodable {
-        let operation: String
-        let target: String
-        let description: String
-        let confidence: Double
-    }
-    let summary: String
-    let changes: [Change]
-    let questions: [String]
-    let overallConfidence: Double
+struct PreviewView: Decodable {
+    let projectId: String
+    let url: URL
+    let port: Int
 }
 
 struct TaskView: Decodable {
@@ -71,7 +74,6 @@ struct TaskView: Decodable {
     let projectId: String
     let status: TaskStatus
     let sessionId: String?
-    let interpretation: Interpretation?
     let summary: String?
     /// 에이전트가 사람에게 한 말. summary는 한 문장뿐이라 자세한 설명은 여기 있다.
     let agentReply: String?
@@ -132,13 +134,19 @@ struct BridgeClient {
         return try await send(request(path: "projects"), as: Response.self).projects
     }
 
+    func startPreview(projectId: String) async throws -> PreviewView {
+        try await send(
+            request(path: "projects/\(projectId)/preview", method: "POST"),
+            as: PreviewView.self
+        )
+    }
+
     // MARK: 작업
 
     /// 그림을 보낸다.
     ///
     /// - Parameters:
-    ///   - snapshot: `CanvasComposer.snapshot(...)`의 결과. 획과 배경을 **따로**
-    ///     보낸다 — 서버는 획이 배경 위에 겹쳐진 것으로 보고 해석한다.
+    ///   - snapshot: 실제 WKWebView 렌더와 그 위의 획을 같은 좌표계로 보낸다.
     ///   - clientTaskId: 재전송해도 작업이 중복 생성되지 않게 하는 열쇠.
     ///     같은 그림을 다시 보낼 땐 **같은 값**을 유지해야 한다.
     func createTask(
@@ -154,7 +162,7 @@ struct BridgeClient {
 
         var files = [(name: "canvasImage", payload: snapshot.canvas)]
         if let base = snapshot.base {
-            files.append((name: "baseImage", payload: base))
+            files.append((name: "renderedViewImage", payload: base))
         }
 
         let (body, contentType) = Self.multipartBody(fields: fields, files: files)
@@ -193,13 +201,6 @@ struct BridgeClient {
             URLQueryItem(name: "limit", value: String(limit)),
         ])
         return try await send(req, as: Response.self).tasks
-    }
-
-    /// 해석 결과 승인 / 거부.
-    func confirm(_ taskId: String, approved: Bool) async throws -> TaskCreated {
-        try await sendJSON(
-            path: "tasks/\(taskId)/confirm", body: ["approved": approved], as: TaskCreated.self
-        )
     }
 
     /// 되물음에 탭으로 답한다.

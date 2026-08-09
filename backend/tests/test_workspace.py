@@ -171,9 +171,10 @@ def test_agents_report_claude_as_usable(client):
 def test_unverified_agents_are_not_usable(client):
     """실측 검증을 거치지 않은 CLI를 고를 수 있게 두면 왜 실패했는지 알 수 없다."""
     agents = {a["agentId"]: a for a in client.get("/api/v1/agents", headers=AUTH).json()["agents"]}
-    for agent_id in ("codex-cli", "gemini-cli"):
-        assert not agents[agent_id]["usable"]
-        assert agents[agent_id]["note"]
+    assert agents["codex-cli"]["verified"]
+    assert agents["codex-cli"]["usable"] == agents["codex-cli"]["installed"]
+    assert not agents["gemini-cli"]["usable"]
+    assert agents["gemini-cli"]["note"]
 
 
 def test_agents_need_auth(client):

@@ -25,6 +25,7 @@ class FakeAgent:
         self._writes = writes or {}
         self._gate = gate
         self.calls: list[tuple] = []
+        self.image_contents: list[bytes] = []
         # TestClient는 앱을 별도 스레드의 이벤트 루프에서 돌림
         # asyncio.Event는 루프를 넘나들 수 없으므로 threading.Event를 씀
         self.started = threading.Event()
@@ -32,8 +33,11 @@ class FakeAgent:
     async def find_latest_session(self, repo_path):
         return "existing-session"
 
-    async def resume_and_run(self, repo_path, session_id, prompt, *, test_commands=None):
-        self.calls.append((repo_path, session_id, prompt, test_commands))
+    async def resume_and_run(
+        self, repo_path, session_id, prompt, *, test_commands=None, image_paths=None
+    ):
+        self.calls.append((repo_path, session_id, prompt, test_commands, image_paths or []))
+        self.image_contents = [path.read_bytes() for path in (image_paths or [])]
         self.started.set()
         while self._gate is not None and not self._gate.is_set():
             await asyncio.sleep(0.005)
@@ -313,16 +317,30 @@ def test_empty_note_is_rejected(api):
     assert r.status_code == 400
 
 
-def test_drawing_without_vision_configured_is_refused(api):
-    api.app.state.vision = None
+async def test_drawing_runs_the_pc_cli_directly(api):
     r = api.post(
         "/api/v1/tasks",
         headers=AUTH,
         data={"projectId": "demo", "mode": "annotate_existing_screen"},
-        files={"canvasImage": ("c.png", b"\x89PNG\r\n", "image/png")},
+        files={
+            "canvasImage": ("c.png", b"drawing", "image/png"),
+            "renderedViewImage": ("view.jpg", b"rendered", "image/jpeg"),
+        },
     )
-    assert r.status_code == 503
-    assert "BRIDGE_OPENAI_API_KEY" in r.json()["detail"]
+    assert r.status_code == 202
+    await _settle(api)
+    assert api.app.state.adapter.image_contents == [b"rendered", b"drawing"]
+    assert "외부 Vision" not in api.app.state.adapter.calls[0][2]
+    assert "LLM CLI" in api.app.state.adapter.calls[0][2]
+
+
+def test_drawing_requires_the_live_render(api):
+    r = api.post(
+        "/api/v1/tasks", headers=AUTH, data={"projectId": "demo"},
+        files={"canvasImage": ("c.png", b"drawing", "image/png")},
+    )
+    assert r.status_code == 400
+    assert "renderedViewImage" in r.json()["detail"]
 
 
 def test_request_without_note_or_image_is_rejected(api):
@@ -388,6 +406,10 @@ async def test_answer_resumes_the_task(client, repo):
     # 고른 선택지의 라벨이 프롬프트에 담겨야 한다
     assert "A안" in answering.calls[0][2]
 
+    # 되물은 **그 세션**에 답해야 한다. 최신 세션을 다시 찾으면(find_latest_session은
+    # "existing-session"을 준다) 그 사이 다른 대화가 건드려졌을 때 답이 엉뚱한 곳으로 간다.
+    assert answering.calls[0][1] == "s1"
+
 
 async def test_answer_rejected_when_not_waiting(api):
     task_id = api.post("/api/v1/tasks", headers=AUTH,
@@ -415,6 +437,7 @@ async def test_cancel_does_not_revert_files(client, repo):
 
     gate.set()
     await _settle(client)
+    assert client.get(f"/api/v1/tasks/{task_id}", headers=AUTH).json()["status"] == "cancelled"
 
 
 def test_unknown_task_is_404(api):

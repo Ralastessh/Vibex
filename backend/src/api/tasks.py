@@ -3,14 +3,13 @@ import asyncio
 import logging
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from src.agents.prompt import build, build_answer
+from src.agents.prompt import build, build_answer, build_visual
 from src.agents.registry import UnsupportedAgentError, build_adapter
 from src.auth.device import RequireDevice
 from src.projects.registry import UnknownProjectError
 from src.tasks.models import Task, TaskStatus
-from src.tasks.runner import interpret_task, run_task
+from src.tasks.runner import run_task
 from src.tasks.store import ProjectBusyError
-from src.vision.validate import UnsafeCommandError, is_confident_enough, validate
 
 logger = logging.getLogger("bridge.api.tasks")
 
@@ -45,7 +44,11 @@ def _adapter_for(request: Request, project):
     except UnsupportedAgentError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
-def _spawn(request: Request, task_id: str, project, prompt: str) -> None:
+def _spawn(
+    request: Request, task_id: str, project, prompt: str,
+    session_id: str | None = None,
+    image_paths=None,
+) -> None:
     _track(
         request,
         run_task(
@@ -54,6 +57,9 @@ def _spawn(request: Request, task_id: str, project, prompt: str) -> None:
             prompt=prompt,
             adapter=_adapter_for(request, project),
             store=request.app.state.tasks,
+            session_id=session_id,
+            image_paths=image_paths,
+            asset_store=request.app.state.task_assets if image_paths else None,
         ),
     )
 
@@ -83,6 +89,8 @@ async def create_task(
     typedNote: str | None = Form(None),
     clientTaskId: str | None = Form(None),
     canvasImage: UploadFile | None = None,
+    renderedViewImage: UploadFile | None = None,
+    # 이전 iPad 빌드와 한시 호환. 새 앱은 renderedViewImage를 보낸다.
     baseImage: UploadFile | None = None,
 ) -> TaskCreated:
     project = _project(request, projectId)
@@ -93,41 +101,61 @@ async def create_task(
         )
 
     settings = request.app.state.settings
-    canvas = base = None
+    canvas = rendered = None
     if canvasImage is not None:
-        if request.app.state.vision is None:
-            raise HTTPException(
-                status_code=503,
-                detail="드로잉 해석이 설정되지 않았습니다. BRIDGE_OPENAI_API_KEY를 확인하세요.",
-            )
         canvas = await _read_image(canvasImage, settings.max_image_bytes, "canvasImage")
-        if baseImage is not None:
-            base = await _read_image(baseImage, settings.max_image_bytes, "baseImage")
+        rendered_upload = renderedViewImage or baseImage
+        if rendered_upload is None:
+            raise HTTPException(
+                status_code=400,
+                detail="라이브 프론트엔드 렌더(renderedViewImage)가 필요합니다.",
+            )
+        rendered = await _read_image(
+            rendered_upload, settings.max_image_bytes, "renderedViewImage"
+        )
 
     if not project.exists:
         raise HTTPException(status_code=409, detail="저장소 경로를 찾을 수 없습니다.")
     if not project.is_git_repo:
         raise HTTPException(status_code=409, detail="Git 저장소가 아닙니다.")
 
+    store = request.app.state.tasks
+    existing = store.find_by_client_task_id(projectId, clientTaskId)
+    if existing is not None:
+        return TaskCreated(taskId=existing.task_id, status=existing.status)
+
+    # 지원되지 않는 CLI라면 lock을 잡기 전에 거절한다.
+    _adapter_for(request, project)
+
     try:
-        task = request.app.state.tasks.create(projectId, client_task_id=clientTaskId)
+        task = store.create(projectId, client_task_id=clientTaskId)
     except ProjectBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if task.status is not TaskStatus.QUEUED:
         return TaskCreated(taskId=task.task_id, status=task.status)
 
-    if canvas is not None:
-        _track(
+    if canvas is not None and rendered is not None:
+        try:
+            image_paths = request.app.state.task_assets.save(
+                task.task_id,
+                [
+                    ("rendered-view.jpg", rendered),
+                    ("drawing-overlay.png", canvas),
+                ],
+            )
+        except OSError as exc:
+            request.app.state.tasks.update(
+                task.task_id, status=TaskStatus.FAILED,
+                error=f"이미지를 PC에 저장하지 못했습니다: {exc}",
+            )
+            raise HTTPException(status_code=500, detail="이미지를 PC에 저장하지 못했습니다.") from exc
+        _spawn(
             request,
-            interpret_task(
-                task_id=task.task_id,
-                canvas_image=canvas,
-                base_image=base,
-                typed_note=typedNote,
-                provider=request.app.state.vision,
-                store=request.app.state.tasks,
-            ),
+            task.task_id,
+            project,
+            build_visual(typed_note=typedNote, test_commands=project.test_commands),
+            image_paths=image_paths,
         )
     else:
         prompt = build(
@@ -136,50 +164,6 @@ async def create_task(
         _spawn(request, task.task_id, project, prompt)
     return TaskCreated(taskId=task.task_id, status=task.status)
 
-
-class ConfirmRequest(BaseModel):
-    approved: bool
-
-@router.post("/{task_id}/confirm", response_model=TaskCreated)
-async def confirm(task_id: str, body: ConfirmRequest, request: Request) -> TaskCreated:
-    store = request.app.state.tasks
-    task = store.get(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
-    if task.status is not TaskStatus.AWAITING_CONFIRMATION or task.interpretation is None:
-        raise HTTPException(status_code=409, detail="승인을 기다리는 상태가 아닙니다.")
-
-    if not body.approved:
-        return TaskCreated(
-            taskId=task_id,
-            status=store.update(task_id, status=TaskStatus.CANCELLED).status,
-        )
-
-    command = task.interpretation
-    if not is_confident_enough(command):
-        # 사용자가 전달한 그림이 부정확하면 PC 측에서 재요청
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"해석 신뢰도가 낮습니다({command.overall_confidence:.2f}). "
-                "다시 그리거나 설명을 추가해 주세요."
-            ),
-        )
-    try:
-        validate(command)
-    except UnsafeCommandError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    project = _project(request, task.project_id)
-    prompt = build(
-        command.to_requests(),
-        resumed=True,
-        context=f"사용자가 iPad에서 '{command.target.screen or '현재 화면'}' 위에 수정사항을 표시했다.",
-        test_commands=project.test_commands,
-    )
-    store.update(task_id, status=TaskStatus.RUNNING_AGENT)
-    _spawn(request, task_id, project, prompt)
-    return TaskCreated(taskId=task_id, status=TaskStatus.RUNNING_AGENT)
 
 class TaskListResponse(BaseModel):
     tasks: list[Task]
@@ -234,7 +218,11 @@ async def answer(task_id: str, body: AnswerRequest, request: Request) -> TaskCre
     label = option.label if option else body.free_text.strip()
 
     store.update(task_id, status=TaskStatus.RUNNING_AGENT, questions=[])
-    _spawn(request, task_id, project, build_answer(question.text, label))
+    # 되물은 그 세션에 답해야 한다. 다시 찾으면 엉뚱한 대화로 갈 수 있다.
+    _spawn(
+        request, task_id, project, build_answer(question.text, label),
+        session_id=task.session_id or None,
+    )
     return TaskCreated(taskId=task_id, status=TaskStatus.RUNNING_AGENT)
 
 

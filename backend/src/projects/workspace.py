@@ -28,6 +28,8 @@ def create_project(
     workspace_root: Path | None,
     agent: str = "claude-code",
     test_commands: list[str] | None = None,
+    preview_command: list[str] | None = None,
+    preview_port: int | None = None,
     init_git: bool = True,
 ) -> Project:
     if workspace_root is None:
@@ -61,4 +63,6 @@ def create_project(
         enabled=True,
         agent=agent,
         testCommands=test_commands or [],
+        previewCommand=preview_command or [],
+        previewPort=preview_port,
     )

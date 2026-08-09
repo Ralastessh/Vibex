@@ -129,6 +129,24 @@ async def test_no_test_commands_means_no_bash_allowance(tmp_path, repo):
     assert "--resume" not in args
 
 
+async def test_images_are_exposed_to_claude_as_readable_files(tmp_path, repo):
+    binary, args_file = fake_claude(tmp_path, envelope())
+    rendered = tmp_path / "rendered.jpg"
+    drawing = tmp_path / "drawing.png"
+    rendered.write_bytes(b"rendered")
+    drawing.write_bytes(b"drawing")
+
+    await ClaudeCodeAdapter(binary=binary).resume_and_run(
+        repo, "sess-1", "이미지를 분석해줘", image_paths=[rendered, drawing]
+    )
+    args = json.loads(args_file.read_text())
+    assert "--add-dir" in args
+    assert "Read" in args[args.index("--allowedTools") + 1]
+    prompt = args[1]
+    assert str(rendered.resolve()) in prompt
+    assert str(drawing.resolve()) in prompt
+
+
 # --- 출력 해석 ---
 
 

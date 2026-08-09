@@ -11,7 +11,6 @@ from src.tasks.models import (
     TaskStatus,
     TestResult,
 )
-from src.vision.schema import ProjectCommand
 
 logger = logging.getLogger("bridge.store")
 # 이전 프로세스는 종료
@@ -110,7 +109,6 @@ class TaskStore:
         *,
         status: TaskStatus | None = None,
         session_id: str | None = None,
-        interpretation: ProjectCommand | None = None,
         summary: str | None = None,
         agent_reply: str | None = None,
         changed_files: list[ChangedFile] | None = None,
@@ -128,8 +126,6 @@ class TaskStore:
                 task.status = status
             if session_id is not None:
                 task.session_id = session_id
-            if interpretation is not None:
-                task.interpretation = interpretation.model_copy(deep=True)
             if summary is not None:
                 task.summary = summary
             if agent_reply is not None:

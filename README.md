@@ -17,20 +17,15 @@ LLM과 에이전트를 활용한 바이브코딩은 누구나 빠르게 아이�
 ```
 iPad                     Tailscale          iMac
 ────────────────────────────────────────────────────────────────
+WKWebView 라이브 UI ◀───────────────────── Vite/React dev server
+버튼·검색창 조작   ─────────────────────▶ (실시간 상호작용/HMR)
 펜으로 그리기      ─────────────────────▶ Bridge
-                                         │
-                                         ├─▶ OpenAI Vision
-                                         │     그림 → 구조화된 명령
-                                         │
-해석 결과 확인    ◀─────────────────────────┤
-[승인]          ────────────────────────▶ │
-                                         │
-                                         ├─▶ 프로젝트의 최신 세션 탐색
-                                         ├─▶ claude -p --resume <id>
-                                         │     코드 수정 + 테스트 실행
-                                         │
+                                         ├─▶ 현재 렌더 + 투명 획을 PC 임시 저장
+                                         ├─▶ 해당 Claude/Codex 세션에 이미지 첨부
+                                         │     이미지 해석 + 코드 수정 + 테스트
+좌표 기반 선택지   ◀─────────────────────────┤
+선택 피드백        ─────────────────────▶ 같은 CLI 세션 resume
 변경 파일 · 테스트 ◀─────────────────────────┘
-결과 · 질문
 ```
 
 ```
@@ -48,29 +43,29 @@ iPad                     Tailscale          iMac
 │                             │
 │ POST /tasks                 │
 │ GET /projects               │
+│ POST /projects/{id}/preview │
 │ WS /tasks/{id}/events       │
 │                             │
 │ Project Registry            │
 │ Session Resolver            │
-│ Claude Code Adapter         │
+│ Claude/Codex Adapter        │
 └──────────────┬──────────────┘
                │
-       subprocess / CLI --- 필요시 VSCode Extension 추가
+       subprocess / CLI
                │
 ┌──────────────▼──────────────┐
-│ Claude Code CLI             │
-│ Existing Repository         │
-│ Existing Session            │
+│ Claude Code 또는 Codex CLI  │
+│ Existing Repository/Session │
 └─────────────────────────────┘
 ```
 
 ### 다섯 단계
 
-1. **그리기** — 현재 화면 스크린샷 위에 화살표·동그라미·손글씨로 수정 의도를 표시
-2. **해석** — OpenAI Vision이 그림을 구조화된 `ProjectCommand`로 변환
-3. **확인** — 무엇이 실행될지 iPad에서 보고 승인. 승인 없이는 코드가 바뀌지 않음
-4. **실행** — 프로젝트의 최신 CLI 세션을 재개해 코드 수정 + 테스트
-5. **반환** — 변경 파일, 테스트 결과, 경고. 에이전트가 되물으면 탭으로 답변
+1. **실행** — PC가 프로젝트 개발 서버를 시작하고 iPad가 라이브 UI를 연다.
+2. **상호작용** — 실제 버튼·입력창·라우팅을 사용해 원하는 상태로 이동한다.
+3. **그리기** — 드로잉 모드에서 현재 라이브 렌더 위에 수정 의도를 표시한다.
+4. **CLI 처리** — 현재 렌더와 투명 획을 해당 Claude/Codex 세션에 직접 첨부해 코드 수정과 테스트를 맡긴다.
+5. **피드백** — 모호한 요소는 좌표 기반 유리 질감 객체와 선택지로 표시하고 선택 결과를 같은 세션에 돌려보낸다.
 
 ## iPad 앱
 단순 그림판이 아니라 프로젝트를 관리하는 작업 공간입니다.
@@ -102,10 +97,35 @@ iPad                     Tailscale          iMac
 | 영역 | 사용 |
 |---|---|
 | iPad 앱 | SwiftUI · PencilKit (iPadOS 17+) |
-| PC와 태블릿PC 간 연결 소스 | Python 3.12+ · FastAPI · SQLite |
-| 그림 해석 | OpenAI GPT-5 |
-| 코드 수정 | Claude Code CLI |
+| PC와 태블릿PC 간 연결 소스 | Python 3.12+ · FastAPI |
+| 그림 해석·코드 수정 | Claude Code CLI 또는 Codex CLI(ChatGPT 로그인) |
 | 원격 연결 | Tailscale |
+
+OpenAI Platform API나 `OPENAI_API_KEY`는 사용하지 않습니다. Codex를 선택한
+프로젝트는 PC에 로그인되어 있는 Codex CLI 세션을 사용합니다.
+
+## 프로젝트 설정
+
+`backend/projects.local.json`에서 프로젝트별 CLI와 프론트엔드 실행 방식을 정합니다.
+
+```json
+{
+  "projects": [
+    {
+      "projectId": "demo",
+      "displayName": "Demo React App",
+      "repoPath": "~/Desktop/demo-react-app",
+      "agent": "codex-cli",
+      "testCommands": ["npm test"],
+      "previewCommand": ["npm", "run", "dev", "--", "--host", "{host}", "--port", "{port}"]
+    }
+  ]
+}
+```
+
+Vite/Next 프로젝트는 `package.json`의 `dev` 스크립트를 자동 탐지하므로
+`previewCommand`를 생략할 수 있습니다. iPad는 Bridge 주소에 사용한 PC/Tailscale
+호스트와 프리뷰 포트를 조합해 직접 접속합니다.
 
 ```
 src/             PC와 태블릿PC 간 연결 오픈소스

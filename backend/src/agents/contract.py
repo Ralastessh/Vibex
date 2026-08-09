@@ -11,6 +11,7 @@ OUTPUT_CONTRACT = f"""출력 규칙(반드시 지킬 것):
 응답의 가장 마지막에 아래 형식의 JSON을 ```{FENCE} 코드펜스로 감싸 정확히 하나만 출력한다.
 - 판단이 필요해 진행할 수 없으면 status를 needs_answer로 하고, 코드를 수정하지 말고
   questions를 채운다. 질문에는 iPad에서 탭으로 고를 수 있는 선택지를 반드시 넣는다.
+  화면의 특정 요소에 대한 질문이면 overlay에 그 요소의 정규화 좌표(0~1)를 넣는다.
 - 작업을 마쳤으면 status를 completed로 한다.
 - 테스트를 실행했다면 그 결과를 tests에 기록한다. 실행하지 못했다면 status를
   skipped로 하고 이유를 summary에 적는다. 실행하지 않은 것을 passed로 적지 않는다.
@@ -21,7 +22,12 @@ OUTPUT_CONTRACT = f"""출력 규칙(반드시 지킬 것):
   "summary": "무엇을 했는지 한 문장",
   "changedFiles": [{{"path": "상대경로", "summary": "무엇을 바꿨는지"}}],
   "tests": [{{"command": "실행한 명령", "status": "passed|failed|skipped", "summary": "결과"}}],
-  "questions": [{{"questionId": "q1", "text": "질문", "options": [{{"optionId": "a", "label": "선택지"}}]}}],
+  "questions": [{{
+    "questionId": "q1",
+    "text": "질문",
+    "overlay": {{"shape": "rectangle|ellipse|capsule", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1, "label": "대상 요소"}},
+    "options": [{{"optionId": "a", "label": "선택지"}}]
+  }}],
   "warnings": ["주의할 점"]
 }}
 ```"""
