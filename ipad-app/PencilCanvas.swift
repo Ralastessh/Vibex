@@ -21,19 +21,36 @@ enum PenKind: String, CaseIterable {
     var usesColor: Bool { self == .pen || self == .marker }
 }
 
+// 지우개 방식: 획 일부만 지우기(픽셀) vs 획 통째로 지우기(오브젝트).
+enum EraserMode: Equatable {
+    case pixel   // 닿은 픽셀만 지움 → 획 일부가 남음
+    case object  // 닿은 획 전체를 지움
+}
+
 struct DrawTool: Equatable {
     static let palette = ["#111111", "#2f6bff", "#e0564a", "#1f9d55", "#f59e0b", "#8b5cf6"]
 
     var kind: PenKind = .pen
     var colorHex: String = "#111111"
     var width: CGFloat = 5
+    // 지우개는 펜과 굵기 척도가 달라 따로 둔다(도구 전환 시 굵기가 넘어오지 않게).
+    var eraserWidth: CGFloat = 24
+    var eraserMode: EraserMode = .pixel
 
     var pkTool: PKTool {
         let color = UIColor(hex: colorHex)
         switch kind {
         case .pen: return PKInkingTool(.pen, color: color, width: width)
         case .marker: return PKInkingTool(.marker, color: color, width: max(width * 3, 16))
-        case .eraser: return PKEraserTool(.bitmap)
+        case .eraser:
+            // width 지정 지우개와 .vector(획 전체) 지우개는 iOS 16.4+.
+            // 그 이전은 픽셀 고정 크기로 폴백.
+            if #available(iOS 16.4, *) {
+                let type: PKEraserTool.EraserType = eraserMode == .object ? .vector : .bitmap
+                return PKEraserTool(type, width: eraserWidth)
+            } else {
+                return PKEraserTool(.bitmap)
+            }
         case .lasso: return PKLassoTool()
         }
     }
