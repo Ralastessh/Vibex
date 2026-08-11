@@ -4,7 +4,6 @@ import SwiftUI
 struct DrawingToolbar: View {
     @Binding var tool: DrawTool
 
-    private let palette = ["#111111", "#2f6bff", "#e0564a", "#1f9d55", "#f59e0b", "#8b5cf6"]
     private let widths: [CGFloat] = [2, 5, 9]
 
     var body: some View {
@@ -20,7 +19,7 @@ struct DrawingToolbar: View {
                 Divider().frame(height: 26)
 
                 HStack(spacing: 6) {
-                    ForEach(palette, id: \.self) { hex in
+                    ForEach(DrawTool.palette, id: \.self) { hex in
                         Circle()
                             .fill(Color(uiColor: UIColor(hex: hex)))
                             .frame(width: 22, height: 22)
