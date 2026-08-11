@@ -15,8 +15,16 @@ class AgentView(BaseModel):
     installed: bool
     verified: bool
     note: str = ""
+    models: list["AgentOption"] = Field(default_factory=list)
+    efforts: list["AgentOption"] = Field(default_factory=list)
+    speed_modes: list["AgentOption"] = Field(default_factory=list, alias="speedModes")
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+class AgentOption(BaseModel):
+    value: str
+    label: str
 
 # 하나가 아닌 여러 LLM에 대한 선택지
 class AgentListResponse(BaseModel):
@@ -33,7 +41,11 @@ def list_agents(request: Request) -> AgentListResponse:
                 usable=info.usable,
                 installed=info.installed,
                 verified=info.verified,
-                note=info.note)
+                note=info.note,
+                models=[AgentOption(value=value, label=label) for value, label in info.models],
+                efforts=[AgentOption(value=value, label=label) for value, label in info.efforts],
+                speedModes=[AgentOption(value=value, label=label) for value, label in info.speed_modes],
+            )
             for info in available_agents(settings.claude_binary, settings.codex_binary)
         ]
     )

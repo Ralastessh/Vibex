@@ -1,13 +1,28 @@
 from __future__ import annotations
 import asyncio
+import base64
 import logging
+import mimetypes
+from typing import Literal
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.agents.prompt import build, build_answer, build_visual
-from src.agents.registry import UnsupportedAgentError, build_adapter
+from src.agents.registry import (
+    UnsupportedAgentError,
+    build_adapter,
+    validate_run_options,
+)
 from src.auth.device import RequireDevice
 from src.projects.registry import UnknownProjectError
-from src.tasks.models import Task, TaskStatus
+from src.projects import git
+from src.tasks.models import (
+    ClarificationTurn,
+    Task,
+    TaskAttachment,
+    TaskStatus,
+    ThreadMode,
+)
 from src.tasks.runner import run_task
 from src.tasks.store import ProjectBusyError
 
@@ -29,11 +44,16 @@ def _project(request: Request, project_id: str):
             status_code=404, detail="선택한 프로젝트가 iMac에 등록되어 있지 않습니다."
         ) from None
 
-def _track(request: Request, coro) -> None:
+def _track(request: Request, task_id: str, coro) -> None:
     task = asyncio.create_task(coro)
-    running: set = request.app.state.running
-    running.add(task)
-    task.add_done_callback(running.discard)
+    running: dict[str, asyncio.Task] = request.app.state.running
+    running[task_id] = task
+
+    def remove(completed: asyncio.Task) -> None:
+        if running.get(task_id) is completed:
+            running.pop(task_id, None)
+
+    task.add_done_callback(remove)
 
 def _adapter_for(request: Request, project):
     injected = getattr(request.app.state, "adapter", None)
@@ -48,9 +68,14 @@ def _spawn(
     request: Request, task_id: str, project, prompt: str,
     session_id: str | None = None,
     image_paths=None,
+    model: str | None = None,
+    effort: str | None = None,
+    speed_mode: str | None = None,
+    thread_mode: ThreadMode = "auto",
 ) -> None:
     _track(
         request,
+        task_id,
         run_task(
             task_id=task_id,
             project=project,
@@ -59,7 +84,10 @@ def _spawn(
             store=request.app.state.tasks,
             session_id=session_id,
             image_paths=image_paths,
-            asset_store=request.app.state.task_assets if image_paths else None,
+            model=model,
+            effort=effort,
+            speed_mode=speed_mode,
+            thread_mode=thread_mode,
         ),
     )
 
@@ -87,13 +115,30 @@ async def create_task(
     projectId: str = Form(...),
     mode: str = Form("text"),
     typedNote: str | None = Form(None),
+    origin: Literal["ipad", "vscode"] = Form("ipad"),
+    model: str | None = Form(None),
+    effort: str | None = Form(None),
+    speedMode: str | None = Form(None),
     clientTaskId: str | None = Form(None),
+    threadMode: ThreadMode = Form("auto"),
+    threadId: str | None = Form(None),
     canvasImage: UploadFile | None = None,
     renderedViewImage: UploadFile | None = None,
     # 이전 iPad 빌드와 한시 호환. 새 앱은 renderedViewImage를 보낸다.
     baseImage: UploadFile | None = None,
 ) -> TaskCreated:
     project = _project(request, projectId)
+
+    normalized_thread_id = (threadId or "").strip() or None
+    if threadMode == "resume" and normalized_thread_id is None:
+        raise HTTPException(status_code=422, detail="threadMode=resume에는 threadId가 필요합니다.")
+    if threadMode == "new" and normalized_thread_id is not None:
+        raise HTTPException(status_code=422, detail="새 대화에는 기존 threadId를 지정할 수 없습니다.")
+    if project.agent != "codex-cli" and threadMode != "auto":
+        raise HTTPException(
+            status_code=501,
+            detail="명시적인 대화 선택/새 대화는 현재 Codex App Server에서만 지원합니다.",
+        )
 
     if canvasImage is None and not (typedNote or "").strip():
         raise HTTPException(
@@ -102,7 +147,9 @@ async def create_task(
 
     settings = request.app.state.settings
     canvas = rendered = None
+    canvas_content_type = rendered_content_type = None
     if canvasImage is not None:
+        canvas_content_type = canvasImage.content_type
         canvas = await _read_image(canvasImage, settings.max_image_bytes, "canvasImage")
         rendered_upload = renderedViewImage or baseImage
         if rendered_upload is None:
@@ -110,6 +157,7 @@ async def create_task(
                 status_code=400,
                 detail="라이브 프론트엔드 렌더(renderedViewImage)가 필요합니다.",
             )
+        rendered_content_type = rendered_upload.content_type
         rendered = await _read_image(
             rendered_upload, settings.max_image_bytes, "renderedViewImage"
         )
@@ -128,7 +176,25 @@ async def create_task(
     _adapter_for(request, project)
 
     try:
-        task = store.create(projectId, client_task_id=clientTaskId)
+        agent_model, reasoning_effort, speed_mode = validate_run_options(
+            project.agent, model, effort, speedMode
+        )
+        user_message = (typedNote or "").strip()
+        if canvas is not None and not user_message:
+            user_message = "첨부한 화면과 드로잉을 기준으로 수정해줘."
+        task = store.create(
+            projectId,
+            client_task_id=clientTaskId,
+            user_message=user_message,
+            origin=origin,
+            agent_model=agent_model,
+            reasoning_effort=reasoning_effort,
+            speed_mode=speed_mode,
+            thread_mode=threadMode,
+            thread_id=normalized_thread_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ProjectBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -144,6 +210,23 @@ async def create_task(
                     ("drawing-overlay.png", canvas),
                 ],
             )
+            request.app.state.tasks.update(
+                task.task_id,
+                attachments=[
+                    TaskAttachment(
+                        name="rendered-view.jpg",
+                        kind="rendered_view",
+                        contentType=rendered_content_type or "image/jpeg",
+                        url=f"/api/v1/tasks/{task.task_id}/attachments/rendered-view.jpg",
+                    ),
+                    TaskAttachment(
+                        name="drawing-overlay.png",
+                        kind="drawing_overlay",
+                        contentType=canvas_content_type or "image/png",
+                        url=f"/api/v1/tasks/{task.task_id}/attachments/drawing-overlay.png",
+                    ),
+                ],
+            )
         except OSError as exc:
             request.app.state.tasks.update(
                 task.task_id, status=TaskStatus.FAILED,
@@ -156,12 +239,22 @@ async def create_task(
             project,
             build_visual(typed_note=typedNote, test_commands=project.test_commands),
             image_paths=image_paths,
+            model=task.agent_model,
+            effort=task.reasoning_effort,
+            speed_mode=task.speed_mode,
+            thread_mode=task.thread_mode,
         )
     else:
         prompt = build(
             [typedNote.strip()], resumed=False, test_commands=project.test_commands
         )
-        _spawn(request, task.task_id, project, prompt)
+        _spawn(
+            request, task.task_id, project, prompt,
+            model=task.agent_model,
+            effort=task.reasoning_effort,
+            speed_mode=task.speed_mode,
+            thread_mode=task.thread_mode,
+        )
     return TaskCreated(taskId=task.task_id, status=task.status)
 
 
@@ -185,9 +278,156 @@ def get_task(task_id: str, request: Request) -> Task:
     return task
 
 
+@router.get("/{task_id}/attachments/{name}")
+def get_attachment(task_id: str, name: str, request: Request) -> FileResponse:
+    task = request.app.state.tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    attachment = next((item for item in task.attachments if item.name == name), None)
+    path = request.app.state.task_assets.resolve(task_id, name)
+    if attachment is None or path is None:
+        raise HTTPException(status_code=404, detail="첨부 이미지를 찾을 수 없습니다.")
+    return FileResponse(path, media_type=attachment.content_type)
+
+
+class ReviewFile(BaseModel):
+    path: str
+    absolute_path: str | None = Field(default=None, alias="absolutePath")
+    additions: int = 0
+    deletions: int = 0
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+class TaskReview(BaseModel):
+    patch: str
+    files: list[ReviewFile]
+
+
+class TaskReviewFile(BaseModel):
+    path: str
+    before: str | None
+    after: str | None
+    before_exists: bool = Field(alias="beforeExists")
+    after_exists: bool = Field(alias="afterExists")
+    content_type: str | None = Field(default=None, alias="contentType")
+    is_binary: bool = Field(default=False, alias="isBinary")
+    encoding: Literal["utf-8", "base64"] = "utf-8"
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+@router.get("/{task_id}/review", response_model=TaskReview)
+def review_task(task_id: str, request: Request) -> TaskReview:
+    task = request.app.state.tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    patch = request.app.state.tasks.review_patch(task_id)
+    if not patch:
+        raise HTTPException(status_code=409, detail="이 작업에는 리뷰할 파일 변경이 없습니다.")
+    project = _project(request, task.project_id)
+    root = project.repo_path.resolve()
+    files: list[ReviewFile] = []
+    for changed in task.changed_files:
+        candidate = (root / changed.path).resolve()
+        is_inside = candidate == root or root in candidate.parents
+        files.append(
+            ReviewFile(
+                path=changed.path,
+                absolutePath=str(candidate) if is_inside and candidate.exists() else None,
+                additions=changed.additions,
+                deletions=changed.deletions,
+            )
+        )
+    return TaskReview(patch=patch, files=files)
+
+
+def _binary(data: bytes | None) -> bool:
+    if data is None:
+        return False
+    if b"\0" in data:
+        return True
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return True
+    return False
+
+
+def _review_content(data: bytes | None, *, binary: bool) -> str | None:
+    if data is None:
+        return None
+    if binary:
+        return base64.b64encode(data).decode("ascii")
+    return data.decode("utf-8")
+
+
+@router.get("/{task_id}/review/file", response_model=TaskReviewFile)
+def review_task_file(task_id: str, path: str, request: Request) -> TaskReviewFile:
+    store = request.app.state.tasks
+    task = store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    if not any(changed.path == path for changed in task.changed_files):
+        raise HTTPException(status_code=404, detail="이 작업에서 변경한 파일이 아닙니다.")
+
+    trees = store.review_trees(task_id)
+    if trees is None:
+        raise HTTPException(
+            status_code=409,
+            detail="이 작업에는 파일 전후 스냅샷이 없습니다.",
+        )
+    project = _project(request, task.project_id)
+    try:
+        before_data = git.read_tree_file(project.repo_path, trees[0], path)
+        after_data = git.read_tree_file(project.repo_path, trees[1], path)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    is_binary = _binary(before_data) or _binary(after_data)
+    guessed_type = mimetypes.guess_type(path)[0]
+    content_type = guessed_type or (
+        "application/octet-stream" if is_binary else "text/plain"
+    )
+    return TaskReviewFile(
+        path=path,
+        before=_review_content(before_data, binary=is_binary),
+        after=_review_content(after_data, binary=is_binary),
+        beforeExists=before_data is not None,
+        afterExists=after_data is not None,
+        contentType=content_type,
+        isBinary=is_binary,
+        encoding="base64" if is_binary else "utf-8",
+    )
+
+
+@router.post("/{task_id}/undo", response_model=Task)
+def undo_task(task_id: str, request: Request) -> Task:
+    store = request.app.state.tasks
+    task = store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    if task.is_active:
+        raise HTTPException(status_code=409, detail="작업이 끝난 뒤 실행 취소할 수 있습니다.")
+    if task.undone:
+        raise HTTPException(status_code=409, detail="이미 실행 취소한 작업입니다.")
+    patch = store.review_patch(task_id)
+    if not patch:
+        raise HTTPException(status_code=409, detail="되돌릴 파일 변경이 없습니다.")
+    project = _project(request, task.project_id)
+    try:
+        git.reverse_patch(project.repo_path, patch)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="후속 변경과 충돌하여 안전하게 실행 취소할 수 없습니다. 리뷰에서 직접 확인해 주세요.",
+        ) from exc
+    return store.update(task_id, undone=True)
+
+
 class AnswerRequest(BaseModel):
     question_id: str = Field(alias="questionId")
-    selected_option_id: str = Field(alias="selectedOptionId")
+    selected_option_id: str | None = Field(default=None, alias="selectedOptionId")
     free_text: str | None = Field(default=None, alias="freeText")
 
     model_config = {"populate_by_name": True}
@@ -210,32 +450,69 @@ async def answer(task_id: str, body: AnswerRequest, request: Request) -> TaskCre
 
     option = next(
         (o for o in question.options if o.option_id == body.selected_option_id), None
-    )
+    ) if body.selected_option_id else None
     if option is None and not (body.free_text or "").strip():
         raise HTTPException(status_code=400, detail="선택지 또는 freeText가 필요합니다.")
 
     project = _project(request, task.project_id)
     label = option.label if option else body.free_text.strip()
 
-    store.update(task_id, status=TaskStatus.RUNNING_AGENT, questions=[])
+    store.update(
+        task_id,
+        status=TaskStatus.RUNNING_AGENT,
+        questions=[],
+        clarification_turns=[
+            *task.clarification_turns,
+            ClarificationTurn(
+                question=question,
+                answer=label,
+                assistantReply=task.agent_reply or "",
+                selectedOptionId=option.option_id if option else None,
+            ),
+        ],
+    )
     # 되물은 그 세션에 답해야 한다. 다시 찾으면 엉뚱한 대화로 갈 수 있다.
     _spawn(
         request, task_id, project, build_answer(question.text, label),
         session_id=task.session_id or None,
+        model=task.agent_model,
+        effort=task.reasoning_effort,
+        speed_mode=task.speed_mode,
     )
     return TaskCreated(taskId=task_id, status=TaskStatus.RUNNING_AGENT)
 
 
 @router.post("/{task_id}/cancel", response_model=Task)
-def cancel(task_id: str, request: Request) -> Task:
+async def cancel(task_id: str, request: Request) -> Task:
     store = request.app.state.tasks
     task = store.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     if not task.is_active:
         raise HTTPException(status_code=409, detail="이미 끝난 작업입니다.")
+    running: asyncio.Task | None = request.app.state.running.get(task_id)
+    if running is not None and not running.done():
+        running.cancel()
+        # adapter의 subprocess finally가 끝날 때까지 프로젝트 lock을 유지한다.
+        # 먼저 CANCELLED로 바꾸면 종료 중인 프로세스와 새 작업이 동시에 파일을
+        # 수정할 수 있다.
+        try:
+            await running
+        except asyncio.CancelledError:
+            pass
+
+    latest = store.get(task_id)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
+    if latest.status is TaskStatus.CANCELLED:
+        return latest
+    if not latest.is_active:
+        return latest
     return store.update(
         task_id,
         status=TaskStatus.CANCELLED,
-        warnings=[*task.warnings, "사용자가 취소했습니다. 이미 변경된 파일은 되돌리지 않았습니다."],
+        warnings=[
+            *latest.warnings,
+            "사용자가 취소했습니다. 이미 변경된 파일은 되돌리지 않았습니다.",
+        ],
     )

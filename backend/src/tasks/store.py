@@ -5,11 +5,16 @@ import uuid
 from datetime import datetime, timezone
 from src.tasks.models import (
     ACTIVE_STATUSES,
+    TERMINAL_STATUSES,
+    ActivityItem,
     ChangedFile,
+    ClarificationTurn,
     Question,
     Task,
+    TaskAttachment,
     TaskStatus,
     TestResult,
+    ThreadMode,
 )
 
 logger = logging.getLogger("bridge.store")
@@ -32,6 +37,9 @@ class TaskStore:
         self._active: dict[str, str] = {}
         #: (project_id, client_task_id) -> task_id. 재전송 중복 방지(§12.3).
         self._by_client: dict[tuple[str, str], str] = {}
+        self._review_patches: dict[str, str] = {}
+        #: task_id -> (작업 직전 Git tree, 작업 직후 Git tree)
+        self._review_trees: dict[str, tuple[str, str]] = {}
         self._lock = threading.RLock()
         self._on_change = on_change
 
@@ -40,10 +48,24 @@ class TaskStore:
             self._tasks.clear()
             self._active.clear()
             self._by_client.clear()
+            self._review_patches.clear()
+            self._review_trees.clear()
 
     # --- 생성 ---
 
-    def create(self, project_id: str, client_task_id: str | None = None) -> Task:
+    def create(
+        self,
+        project_id: str,
+        client_task_id: str | None = None,
+        *,
+        user_message: str = "",
+        origin: str = "ipad",
+        agent_model: str | None = None,
+        reasoning_effort: str | None = None,
+        speed_mode: str | None = None,
+        thread_mode: ThreadMode = "auto",
+        thread_id: str | None = None,
+    ) -> Task:
         with self._lock:
             # 같은 clientTaskId면 끝난 작업이라도 원래 것을 돌려준다.
             # iPad가 네트워크 문제로 재전송해도 작업이 두 번 생기면 안 된다.
@@ -60,6 +82,14 @@ class TaskStore:
                 project_id=project_id,
                 status=TaskStatus.QUEUED,
                 client_task_id=client_task_id,
+                user_message=user_message,
+                origin=origin,
+                agent_model=agent_model,
+                reasoning_effort=reasoning_effort,
+                speed_mode=speed_mode,
+                thread_mode=thread_mode,
+                thread_id=thread_id,
+                session_id=thread_id,
             )
             self._tasks[task.task_id] = task
             self._active[project_id] = task.task_id
@@ -101,6 +131,14 @@ class TaskStore:
             found = [t for t in self._tasks.values() if t.project_id == project_id]
             return [_copy(t) for t in reversed(found)][:limit]
 
+    def review_patch(self, task_id: str) -> str | None:
+        with self._lock:
+            return self._review_patches.get(task_id)
+
+    def review_trees(self, task_id: str) -> tuple[str, str] | None:
+        with self._lock:
+            return self._review_trees.get(task_id)
+
     # --- 갱신 ---
 
     def update(
@@ -109,27 +147,50 @@ class TaskStore:
         *,
         status: TaskStatus | None = None,
         session_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
         summary: str | None = None,
         agent_reply: str | None = None,
+        activity_items: list[ActivityItem] | None = None,
+        attachments: list[TaskAttachment] | None = None,
         changed_files: list[ChangedFile] | None = None,
         test_results: list[TestResult] | None = None,
         questions: list[Question] | None = None,
+        clarification_turns: list[ClarificationTurn] | None = None,
         warnings: list[str] | None = None,
         error: str | None = None,
+        review_patch: str | None = None,
+        review_before_tree: str | None = None,
+        review_after_tree: str | None = None,
+        undone: bool | None = None,
     ) -> Task:
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
                 raise LookupError(task_id)
 
+            now = datetime.now(timezone.utc)
             if status is not None:
                 task.status = status
+                if status in TERMINAL_STATUSES and task.completed_at is None:
+                    task.completed_at = now
             if session_id is not None:
                 task.session_id = session_id
+            if thread_id is not None:
+                task.thread_id = thread_id
+                # sessionId is the backwards-compatible alias used by the iPad
+                # and older VS Code builds. Keep it in sync for Codex threads.
+                task.session_id = thread_id
+            if turn_id is not None:
+                task.turn_id = turn_id
             if summary is not None:
                 task.summary = summary
             if agent_reply is not None:
                 task.agent_reply = agent_reply
+            if activity_items is not None:
+                task.activity_items = [item.model_copy(deep=True) for item in activity_items]
+            if attachments is not None:
+                task.attachments = [item.model_copy(deep=True) for item in attachments]
             # 넘어온 리스트를 그대로 들고 있지 않는다. 호출부가 나중에 고치면
             # 저장된 값이 따라 흔들린다.
             if changed_files is not None:
@@ -138,12 +199,34 @@ class TaskStore:
                 task.test_results = [t.model_copy(deep=True) for t in test_results]
             if questions is not None:
                 task.questions = [q.model_copy(deep=True) for q in questions]
+            if clarification_turns is not None:
+                task.clarification_turns = [
+                    turn.model_copy(deep=True) for turn in clarification_turns
+                ]
             if warnings is not None:
                 task.warnings = list(warnings)
             if error is not None:
                 task.error = error
+            if review_patch is not None:
+                if review_patch.strip():
+                    self._review_patches[task_id] = review_patch
+                    task.review_available = True
+                else:
+                    self._review_patches.pop(task_id, None)
+                    self._review_trees.pop(task_id, None)
+                    task.review_available = False
+            if review_before_tree is not None and review_after_tree is not None:
+                if task.review_available:
+                    self._review_trees[task_id] = (
+                        review_before_tree,
+                        review_after_tree,
+                    )
+                else:
+                    self._review_trees.pop(task_id, None)
+            if undone is not None:
+                task.undone = undone
 
-            task.updated_at = datetime.now(timezone.utc)
+            task.updated_at = now
             self._sync_lock(task)
             self._evict()
             snapshot = _copy(task)
@@ -183,6 +266,8 @@ class TaskStore:
             if task.status in ACTIVE_STATUSES:
                 continue
             del self._tasks[task_id]
+            self._review_patches.pop(task_id, None)
+            self._review_trees.pop(task_id, None)
             if task.client_task_id is not None:
                 self._by_client.pop((task.project_id, task.client_task_id), None)
             excess -= 1

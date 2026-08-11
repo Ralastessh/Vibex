@@ -119,6 +119,16 @@ async def test_command_uses_the_verified_flags(tmp_path, repo):
     assert args[args.index("--max-budget-usd") + 1] == "1.5"
 
 
+async def test_command_receives_model_and_effort(tmp_path, repo):
+    binary, args_file = fake_claude(tmp_path, envelope())
+    await ClaudeCodeAdapter(binary=binary).resume_and_run(
+        repo, "sess-1", "프롬프트", model="sonnet", effort="high"
+    )
+    args = json.loads(args_file.read_text())
+    assert args[args.index("--model") + 1] == "sonnet"
+    assert args[args.index("--effort") + 1] == "high"
+
+
 async def test_no_test_commands_means_no_bash_allowance(tmp_path, repo):
     """§18.5 — 허용 목록이 없으면 Bash를 열지 않는다."""
     binary, args_file = fake_claude(tmp_path, envelope())

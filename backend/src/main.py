@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from src.api import agents, events, health, projects
@@ -24,10 +25,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        settings.require_device_token()
-
         app.state.settings = settings
-        app.state.registry = ProjectRegistry.load(settings.projects_file)
+        app.state.registry = ProjectRegistry.load(
+            settings.projects_file, workspace_root=settings.workspace_root
+        )
         app.state.previews = PreviewManager(
             start_timeout=settings.preview_start_timeout_seconds
         )
@@ -42,7 +43,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 테스트가 여기에 가짜를 끼워 넣으면 그것이 우선
         app.state.adapter = None
         # 실행 중인 백그라운드 작업 참조를 붙잡아 놓으면 GC가 취소
-        app.state.running = set()
+        # taskId -> 실행 coroutine. 취소 API와 shutdown이 실제 프로세스 실행까지
+        # 중단할 수 있도록 강한 참조를 유지한다.
+        app.state.running = {}
 
         usable = [
             a.display_name for a in available_agents(
@@ -52,7 +55,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.info("사용 가능한 에이전트: %s", ", ".join(usable) or "(없음)")
         if settings.workspace_root is None:
             logger.warning(
-                "BRIDGE_WORKSPACE_ROOT 없음 — iPad에서 새 프로젝트를 만들 수 없습니다."
+                "BRIDGE_WORKSPACE_ROOT 없음 — 프로젝트 자동 탐색과 "
+                "iPad에서의 새 프로젝트 생성이 비활성화됩니다."
             )
 
         enabled = app.state.registry.list_enabled()
@@ -66,8 +70,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            running = list(app.state.running.values())
+            for task in running:
+                task.cancel()
+            if running:
+                await asyncio.gather(*running, return_exceptions=True)
             await app.state.previews.close()
             app.state.tasks.close()
+            app.state.task_assets.cleanup_all()
 
     app = FastAPI(
         title="Cross-Device CLI Bridge",
