@@ -13,6 +13,7 @@ struct LivePreviewEditorView: View {
     @State private var canvasView = PKCanvasView()
     @State private var drawingMode = false
     @State private var shapeSnapEnabled = false
+    @State private var tool = DrawTool()
     @State private var note = ""
     @State private var sending = false
     @State private var clientTaskId = UUID().uuidString
@@ -33,6 +34,7 @@ struct LivePreviewEditorView: View {
                 PencilCanvas(
                     canvasView: canvasView,
                     shapeSnapEnabled: $shapeSnapEnabled,
+                    tool: tool,
                     allowFingerDrawing: allowFingerDrawing,
                     isActive: drawingMode
                 )
@@ -43,9 +45,14 @@ struct LivePreviewEditorView: View {
                     clarificationLayer(size: geo.size)
                 }
 
-                toolbar
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 12)
+                VStack(spacing: 8) {
+                    toolbar
+                    if drawingMode {
+                        DrawingToolbar(tool: $tool)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 12)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
