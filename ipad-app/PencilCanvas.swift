@@ -15,42 +15,70 @@ extension PKCanvasView {
     }
 }
 
+// 툴바에서 고르는 도구.
+enum PenKind: String, CaseIterable {
+    case pen, marker, eraser, lasso
+    var usesColor: Bool { self == .pen || self == .marker }
+}
+
+struct DrawTool: Equatable {
+    static let palette = ["#111111", "#2f6bff", "#e0564a", "#1f9d55", "#f59e0b", "#8b5cf6"]
+
+    var kind: PenKind = .pen
+    var colorHex: String = "#111111"
+    var width: CGFloat = 5
+
+    var pkTool: PKTool {
+        let color = UIColor(hex: colorHex)
+        switch kind {
+        case .pen: return PKInkingTool(.pen, color: color, width: width)
+        case .marker: return PKInkingTool(.marker, color: color, width: max(width * 3, 16))
+        case .eraser: return PKEraserTool(.bitmap)
+        case .lasso: return PKLassoTool()
+        }
+    }
+}
+
 struct PencilCanvas: UIViewRepresentable {
     let canvasView: PKCanvasView
 
     /// 도형 스냅 on/off.
     @Binding var shapeSnapEnabled: Bool
 
-    /// 손가락 입력 허용. 기본값은 꺼짐 — 켜면 손바닥이 닿는 순간 획이 그려진다.
-    /// 펜슬이 없는 시뮬레이터에서 시험할 때만 켠다.
+    // nil이면 애플 기본 팔레트를 쓴다.
+    var tool: DrawTool?
+
+    /// 손가락 입력 허용. 켜면 손바닥이 닿는 순간 획이 그려진다(시뮬레이터용).
     var allowFingerDrawing = false
     var isActive = true
 
     func makeUIView(context: Context) -> PKCanvasView {
-        // 팜 리젝션은 펜만 받는 것으로 얻는다.
         canvasView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
         canvasView.backgroundColor = .clear
         canvasView.isOpaque = false
         canvasView.delegate = context.coordinator
-
-        // 도구 피커(색·굵기·도구) 띄우기
-        let picker = context.coordinator.toolPicker
-        DispatchQueue.main.async {
-            picker.setVisible(isActive, forFirstResponder: canvasView)
-            picker.addObserver(canvasView)
-            if isActive { canvasView.becomeFirstResponder() }
-        }
+        applyTool(canvasView, context: context)
         return canvasView
     }
 
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
         context.coordinator.shapeSnapEnabled = shapeSnapEnabled
         uiView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
-        context.coordinator.toolPicker.setVisible(isActive, forFirstResponder: uiView)
-        if isActive {
-            uiView.becomeFirstResponder()
+        applyTool(uiView, context: context)
+    }
+
+    private func applyTool(_ view: PKCanvasView, context: Context) {
+        if let tool {
+            // 도구 직접 지정, 애플 팔레트는 숨김.
+            view.tool = tool.pkTool
+            context.coordinator.toolPicker.setVisible(false, forFirstResponder: view)
+            if isActive { view.becomeFirstResponder() }
         } else {
-            uiView.resignFirstResponder()
+            // 애플 기본 팔레트.
+            let picker = context.coordinator.toolPicker
+            picker.setVisible(isActive, forFirstResponder: view)
+            picker.addObserver(view)
+            if isActive { view.becomeFirstResponder() } else { view.resignFirstResponder() }
         }
     }
 
@@ -111,5 +139,19 @@ struct PencilCanvas: UIViewRepresentable {
             let path = PKStrokePath(controlPoints: controlPoints, creationDate: Date())
             return PKStroke(ink: source.ink, path: path)
         }
+    }
+}
+
+extension UIColor {
+    convenience init(hex: String) {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        var value: UInt64 = 0
+        Scanner(string: s).scanHexInt64(&value)
+        self.init(
+            red: CGFloat((value >> 16) & 0xff) / 255,
+            green: CGFloat((value >> 8) & 0xff) / 255,
+            blue: CGFloat(value & 0xff) / 255,
+            alpha: 1
+        )
     }
 }
