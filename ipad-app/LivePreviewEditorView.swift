@@ -12,7 +12,7 @@ struct LivePreviewEditorView: View {
     @State private var webView = WKWebView(frame: .zero)
     @State private var canvasView = PKCanvasView()
     @State private var drawingMode = false
-    @State private var shapeSnapEnabled = false
+    @State private var shapeSnapEnabled = true
     @State private var tool = DrawTool()
     @State private var selection: Set<Int> = []
     @State private var note = ""
