@@ -52,15 +52,20 @@ def test_environment_variable_wins(monkeypatch):
     assert Settings(_env_file=None).device_token == "from-env"
 
 
-def test_missing_token_is_refused():
-    """§18.14 — 무인증 실행을 코드가 막는다."""
-    with pytest.raises(RuntimeError, match="BRIDGE_DEVICE_TOKEN"):
-        Settings(_env_file=None, device_token="  ").require_device_token()
+def test_token_is_optional_for_tailscale_serve():
+    settings = Settings(_env_file=None, device_token="  ")
+    assert settings.device_token.strip() == ""
 
 
-def test_token_is_trimmed():
-    """복사·붙여넣기로 들어온 공백 때문에 인증이 실패하면 원인을 찾기 어렵다."""
-    assert Settings(_env_file=None, device_token=" abc \n").require_device_token() == "abc"
+def test_tailscale_allowlist_is_normalized():
+    settings = Settings(
+        _env_file=None,
+        tailscale_allowed_users=" User@Example.com, second@example.com ,",
+    )
+    assert settings.tailscale_user_allowlist == {
+        "user@example.com",
+        "second@example.com",
+    }
 
 
 def test_defaults_do_not_depend_on_cwd(tmp_path, monkeypatch):

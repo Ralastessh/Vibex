@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from src.agents.base import AgentRunResult
 from src.agents.contract import AgentReport
 from src.tasks.models import OverlayTarget, Question, QuestionOption
+from src.tasks.assets import TaskAssetStore
 from tests.conftest import AUTH
 from tests.test_task_flow import FakeAgent, _settle, completed
 
@@ -33,8 +34,17 @@ async def test_images_go_directly_to_the_selected_cli(client):
     assert agent.image_contents == [b"rendered", b"drawing"]
     paths = agent.calls[0][4]
     assert [path.name for path in paths] == ["rendered-view.jpg", "drawing-overlay.png"]
-    # CLI가 읽은 뒤 PC 임시 이미지가 남지 않는다.
-    assert all(not path.exists() for path in paths)
+    # 같은 대화를 VS Code에서도 그대로 보여줄 수 있도록 서버 종료 전까지 보존한다.
+    assert all(path.exists() for path in paths)
+    task_id = created.json()["taskId"]
+    task = client.get(f"/api/v1/tasks/{task_id}", headers=AUTH).json()
+    assert [item["kind"] for item in task["attachments"]] == [
+        "rendered_view", "drawing_overlay",
+    ]
+    for attachment, expected in zip(task["attachments"], [b"rendered", b"drawing"]):
+        response = client.get(attachment["url"], headers=AUTH)
+        assert response.status_code == 200
+        assert response.content == expected
 
 
 async def test_cli_can_ask_a_coordinate_based_question(client):
@@ -102,3 +112,17 @@ def test_empty_image_is_rejected(client):
 def test_overlay_coordinates_must_be_normalized():
     with pytest.raises(ValidationError):
         OverlayTarget(shape="rectangle", x=1.1, y=0, width=0.2, height=0.2)
+
+
+def test_asset_shutdown_cleanup_never_removes_unrelated_directories(tmp_path):
+    store = TaskAssetStore(tmp_path / "assets")
+    task_id = "04b73d78-d4cc-48e3-9967-f06c9ca963e4"
+    store.save(task_id, [("rendered-view.jpg", b"x")])
+    unrelated = store.root / "keep-me"
+    unrelated.mkdir()
+    (unrelated / "file.txt").write_text("keep", encoding="utf-8")
+
+    store.cleanup_all()
+
+    assert not (store.root / task_id).exists()
+    assert (unrelated / "file.txt").read_text(encoding="utf-8") == "keep"

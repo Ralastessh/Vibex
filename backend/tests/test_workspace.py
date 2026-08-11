@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.main import create_app
+from src.agents.registry import AgentInfo
 from src.projects.workspace import (
     InvalidProjectNameError,
     WorkspaceNotConfiguredError,
@@ -130,11 +131,41 @@ def test_created_project_survives_restart(settings, workspace):
         first.post("/api/v1/projects", headers=AUTH, json={"displayName": "Persisted"})
 
     saved = json.loads(settings.projects_file.read_text(encoding="utf-8"))
-    assert any(p["projectId"] == "persisted" for p in saved["projects"])
+    persisted = next(p for p in saved["projects"] if p["projectId"] == "persisted")
+    assert "repoPath" not in persisted
 
     with TestClient(create_app(settings)) as second:
         ids = [p["projectId"] for p in second.get("/api/v1/projects", headers=AUTH).json()["projects"]]
     assert "persisted" in ids
+
+
+def test_project_agent_can_be_changed_and_persisted(
+    wclient, settings, monkeypatch
+):
+    monkeypatch.setattr(
+        "src.api.projects.available_agents",
+        lambda *_: [
+            AgentInfo(
+                agent_id="codex-cli",
+                display_name="Codex (ChatGPT)",
+                binary="codex",
+                verified=True,
+                installed=True,
+            )
+        ],
+    )
+
+    response = wclient.patch(
+        "/api/v1/projects/demo",
+        headers=AUTH,
+        json={"agent": "codex-cli"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["agent"] == "codex-cli"
+    saved = json.loads(settings.projects_file.read_text(encoding="utf-8"))
+    demo = next(item for item in saved["projects"] if item["projectId"] == "demo")
+    assert demo["agent"] == "codex-cli"
 
 
 def test_creating_an_existing_project_is_refused(wclient):
@@ -165,6 +196,13 @@ def test_blank_name_is_rejected(wclient):
 def test_agents_report_claude_as_usable(client):
     agents = {a["agentId"]: a for a in client.get("/api/v1/agents", headers=AUTH).json()["agents"]}
     assert agents["claude-code"]["verified"]
+    assert {option["value"] for option in agents["claude-code"]["models"]} >= {
+        "sonnet", "opus"
+    }
+    assert "max" in {option["value"] for option in agents["claude-code"]["efforts"]}
+    assert "fast" in {
+        option["value"] for option in agents["codex-cli"]["speedModes"]
+    }
     assert set(agents) == {"claude-code", "codex-cli", "gemini-cli"}
 
 
@@ -238,6 +276,17 @@ def test_events_websocket_streams_status(client, repo):
         assert event["type"] == "task.status"
         assert event["projectId"] == "demo"
         assert event["status"] == "queued"
+
+
+def test_events_websocket_unsubscribes_as_soon_as_client_disconnects(client):
+    """유휴 연결도 heartbeat를 기다리지 않고 즉시 정리한다."""
+    from tests.conftest import TOKEN
+
+    broker = client.app.state.events
+    assert broker.subscriber_count == 0
+    with client.websocket_connect(f"/api/v1/events?token={TOKEN}"):
+        assert broker.subscriber_count == 1
+    assert broker.subscriber_count == 0
 
 
 # --- 작업 목록 (대화 흐름) ---

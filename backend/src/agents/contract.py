@@ -33,6 +33,7 @@ OUTPUT_CONTRACT = f"""출력 규칙(반드시 지킬 것):
 ```"""
 
 _BLOCK = re.compile(rf"```{FENCE}\s*(.*?)```", re.S)
+_BLOCK_START = re.compile(rf"(?:^|\n)```{FENCE}(?:\s|$)")
 
 
 class AgentReport(BaseModel):
@@ -54,13 +55,19 @@ class ContractError(ValueError):
     """에이전트가 계약을 지키지 않을 때 결과를 지어내지 않고 실패로 처리"""
 
 def without_block(result_text: str) -> str:
-    return _BLOCK.sub("", result_text or "").strip()
+    text = _BLOCK.sub("", result_text or "")
+    # 스트리밍 도중에는 닫는 fence가 아직 오지 않을 수 있다. 내부 계약 JSON이
+    # 잠깐 사용자 화면에 나타났다 사라지지 않도록 시작 fence부터 감춘다.
+    start = _BLOCK_START.search(text)
+    if start is not None:
+        text = text[: start.start()]
+    return text.strip()
 
 
 def extract(result_text: str) -> AgentReport:
     blocks = _BLOCK.findall(result_text or "")
     if not blocks:
-        raise ContractError("에이전트 응답에서 결과 블록을 찾지 못했습니다.")
+        raise ContractError("에이전트 응답에서 bridge 결과 블록을 찾지 못했습니다.")
     try:
         return AgentReport.model_validate(json.loads(blocks[-1]))
     except (json.JSONDecodeError, ValidationError) as exc:

@@ -11,8 +11,9 @@ ENV_FILES = (REPO_ROOT / ".env", Path(".env"))
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BRIDGE_", env_file=ENV_FILES, extra="ignore")
-    # 기기 토큰
+    # 이전 앱 빌드 호환용. 새 연결은 Tailscale Serve의 사용자 신원을 쓴다.
     device_token: str = ""
+    tailscale_allowed_users: str = ""
     projects_file: Path = REPO_ROOT / "projects.local.json"
     workspace_root: Path | None = None
     # 향후 다양한 모델 지원 예정
@@ -31,13 +32,13 @@ class Settings(BaseSettings):
         # 요청 전체 상한 — canvas + base + 폼 필드
         return self.max_image_bytes * 2 + 1024 * 1024
 
-    def require_device_token(self) -> str:
-        if not self.device_token.strip():
-            raise RuntimeError(
-                "BRIDGE_DEVICE_TOKEN 이 설정되지 않았습니다. "
-                "인증 없이 실행하지 않습니다 (CLAUDE.md §18)."
-            )
-        return self.device_token.strip()
+    @property
+    def tailscale_user_allowlist(self) -> set[str]:
+        return {
+            item.strip().lower()
+            for item in self.tailscale_allowed_users.split(",")
+            if item.strip()
+        }
 
 @lru_cache
 def get_settings() -> Settings:
