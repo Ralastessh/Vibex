@@ -4,15 +4,13 @@ import Foundation
 // TODO: 이벤트 페이로드 형태 백엔드와 확인.
 final class EventStream {
     private let url: URL?
-    private let token: String
     private var task: URLSessionWebSocketTask?
     private var running = false
 
     // ping은 걸러서 전달하지 않는다.
     var onEvent: (([String: Any]) -> Void)?
 
-    init(baseURL: URL, deviceToken: String) {
-        token = deviceToken
+    init(baseURL: URL) {
         var comps = URLComponents(
             url: baseURL.appendingPathComponent("api/v1/events"),
             resolvingAgainstBaseURL: false
@@ -22,11 +20,9 @@ final class EventStream {
     }
 
     func start() {
-        guard let url, !token.isEmpty else { return }
+        guard let url else { return }
         running = true
-        var req = URLRequest(url: url)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let ws = URLSession.shared.webSocketTask(with: req)
+        let ws = URLSession.shared.webSocketTask(with: url)
         task = ws
         ws.resume()
         receive()

@@ -16,6 +16,7 @@ targets:
           - "*.md"
           - "*.yml"
           - "Info.plist"
+          - "Vibex.xcodeproj"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hansangcharim.vibex

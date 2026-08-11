@@ -69,6 +69,11 @@ struct PreviewView: Decodable {
     let port: Int
 }
 
+struct HealthView: Decodable {
+    let status: String
+    let projects: Int
+}
+
 struct TaskView: Decodable {
     let taskId: String
     let projectId: String
@@ -118,14 +123,17 @@ private struct ErrorDetail: Decodable { let detail: String? }
 
 /// iMac의 Desktop Bridge와 통신한다.
 ///
-/// 주소와 토큰의 영구 저장(Keychain)은 연결 설정 화면의 몫이다. 여기서는 값을
-/// 받아 쓰기만 한다.
+/// 연결 주소의 영구 저장은 연결 설정 화면의 몫이다. 요청 인증은 Tailscale
+/// Serve가 검증한 기기/사용자 신원으로 처리하므로 앱 전용 토큰을 싣지 않는다.
 struct BridgeClient {
     let baseURL: URL
-    let deviceToken: String
     var session: URLSession = .shared
 
     private static let prefix = "api/v1"
+
+    func health() async throws -> HealthView {
+        try await send(request(path: "health"), as: HealthView.self)
+    }
 
     /// 사용자가 연결 확인에 쓴 `/api/v1/health` 주소를 그대로 붙여 넣더라도
     /// API 경로가 중복되지 않게 PC 서버의 루트 URL로 되돌린다.
@@ -224,13 +232,25 @@ struct BridgeClient {
         return try await send(req, as: Response.self).tasks
     }
 
-    /// 되물음에 탭으로 답한다.
+    /// 되물음에 추천 선택지 또는 사용자가 직접 입력한 문장으로 답한다.
     func answer(
-        _ taskId: String, questionId: String, optionId: String
+        _ taskId: String,
+        questionId: String,
+        optionId: String? = nil,
+        freeText: String? = nil
     ) async throws -> TaskCreated {
-        try await sendJSON(
+        var body: [String: Any] = ["questionId": questionId]
+        if let optionId { body["selectedOptionId"] = optionId }
+        if let freeText,
+           !freeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["freeText"] = freeText
+            // 이전 백엔드는 selectedOptionId를 필수로 받으므로 직접 입력임을 나타내는
+            // 예약값도 함께 보내 하위 호환성을 유지한다.
+            if optionId == nil { body["selectedOptionId"] = "__free_text__" }
+        }
+        return try await sendJSON(
             path: "tasks/\(taskId)/answer",
-            body: ["questionId": questionId, "selectedOptionId": optionId],
+            body: body,
             as: TaskCreated.self
         )
     }
@@ -252,7 +272,6 @@ struct BridgeClient {
 
         var req = URLRequest(url: components?.url ?? url)
         req.httpMethod = method
-        req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
         return req
     }
 
@@ -293,7 +312,7 @@ struct BridgeClient {
             return detail
         }
         switch status {
-        case 401: return "기기 토큰이 올바르지 않습니다. 연결 설정을 확인해 주세요."
+        case 401: return "Tailscale 연결과 로그인 계정을 확인해 주세요."
         case 404: return "요청한 항목을 iMac에서 찾을 수 없습니다."
         case 409: return "지금은 처리할 수 없는 상태입니다."
         case 413: return "보낸 이미지가 너무 큽니다."
