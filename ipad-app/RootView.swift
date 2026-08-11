@@ -13,20 +13,21 @@ final class AppModel: ObservableObject {
     @Published var error: String?
 
     private var baseURLText: String {
-        UserDefaults.standard.string(forKey: "bridgeBaseURL") ?? "http://127.0.0.1:8787"
-    }
-    private var token: String {
-        UserDefaults.standard.string(forKey: "bridgeToken") ?? ""
+        #if targetEnvironment(simulator)
+        return "http://127.0.0.1:8787"
+        #else
+        return "http://vibex-pc:8788"
+        #endif
     }
 
     var isConfigured: Bool {
-        !token.trimmingCharacters(in: .whitespaces).isEmpty
+        return true
     }
 
     var client: BridgeClient {
         let url = URL(string: baseURLText.trimmingCharacters(in: .whitespaces))
             ?? URL(string: "http://127.0.0.1:8787")!
-        return BridgeClient(baseURL: url, deviceToken: token)
+        return BridgeClient(baseURL: url)
     }
 
     func refresh() async {
@@ -74,23 +75,57 @@ struct RootView: View {
 // MARK: - 연결 설정
 
 struct SettingsView: View {
+    private enum ConnectionState {
+        case checking
+        case connected(projects: Int)
+        case failed(String)
+    }
+
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("bridgeBaseURL") private var baseURL = "http://127.0.0.1:8787"
-    @AppStorage("bridgeToken") private var token = ""
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
+    @State private var connectionState: ConnectionState = .checking
+
+    private var connectionURL: URL {
+        #if targetEnvironment(simulator)
+        return URL(string: "http://127.0.0.1:8787")!
+        #else
+        return URL(string: "http://vibex-pc:8788")!
+        #endif
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("iMac 연결") {
-                    TextField("http://100.x.x.x:8787", text: $baseURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    SecureField("기기 토큰", text: $token)
-                    Text("서버 주소만 입력하세요. /api/v1/health는 생략해도 됩니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Section("Mac 연결") {
+                    switch connectionState {
+                    case .checking:
+                        HStack {
+                            ProgressView()
+                            Text("실제 연결 확인 중…")
+                        }
+                    case let .connected(projects):
+                        Label("연결됨 · 프로젝트 \(projects)개", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case let .failed(message):
+                        Label("연결되지 않음", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Text(message).font(.caption).foregroundStyle(.red)
+                    }
+
+                    #if targetEnvironment(simulator)
+                    Text("시뮬레이터는 http://127.0.0.1:8787을 자동으로 사용합니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #else
+                    Label("MagicDNS 자동 연결", systemImage: "network")
+                    Text("http://vibex-pc:8788")
+                        .font(.callout.monospaced()).textSelection(.enabled)
+                    Text("iPad의 Tailscale 앱에서 Mac과 같은 tailnet으로 로그인하면 Vibex가 이 주소로 바로 접속합니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #endif
+
+                    Button("다시 확인") {
+                        Task { await checkConnection() }
+                    }
                 }
                 Section("캔버스") {
                     Toggle("손가락으로 그리기(시뮬레이터용)", isOn: $allowFingerDrawing)
@@ -100,6 +135,21 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("완료") { dismiss() } }
             }
+            .task { await checkConnection() }
+        }
+    }
+
+    private func checkConnection() async {
+        connectionState = .checking
+        do {
+            let health = try await BridgeClient(baseURL: connectionURL).health()
+            guard health.status == "ok" else {
+                connectionState = .failed("Vibex 백엔드가 정상 상태를 반환하지 않았습니다.")
+                return
+            }
+            connectionState = .connected(projects: health.projects)
+        } catch {
+            connectionState = .failed(error.localizedDescription)
         }
     }
 }
@@ -210,6 +260,7 @@ struct TaskStatusView: View {
 
     @State private var task: TaskView?
     @State private var errorText: String?
+    @State private var customAnswers: [String: String] = [:]
 
     var body: some View {
         NavigationStack {
@@ -235,6 +286,32 @@ struct TaskStatusView: View {
                                             )
                                         }
                                     }
+                                }
+                                HStack {
+                                    TextField(
+                                        "원하는 답을 직접 입력",
+                                        text: Binding(
+                                            get: { customAnswers[q.questionId, default: ""] },
+                                            set: { customAnswers[q.questionId] = $0 }
+                                        )
+                                    )
+                                    Button("전송") {
+                                        let text = customAnswers[q.questionId, default: ""]
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        guard !text.isEmpty else { return }
+                                        act {
+                                            _ = try await model.client.answer(
+                                                taskId,
+                                                questionId: q.questionId,
+                                                freeText: text
+                                            )
+                                        }
+                                    }
+                                    .disabled(
+                                        customAnswers[q.questionId, default: ""]
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                                            .isEmpty
+                                    )
                                 }
                             }
                         }
@@ -328,9 +405,9 @@ struct NeedsSetupView: View {
             Image(systemName: "antenna.radiowaves.left.and.right.slash")
                 .font(.largeTitle).foregroundStyle(.secondary)
             Text("연결 설정이 필요합니다").font(.headline)
-            Text("Mac Bridge 주소와 기기 토큰을 입력하세요.")
+            Text("iPad의 Tailscale 앱에서 Mac과 같은 tailnet으로 로그인하세요.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("연결 설정", action: action).buttonStyle(.borderedProminent).padding(.top, 4)
+            Button("연결 확인", action: action).buttonStyle(.borderedProminent).padding(.top, 4)
         }
         .padding()
     }

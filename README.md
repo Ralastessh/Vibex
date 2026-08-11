@@ -113,7 +113,10 @@ thread를 재개하며, 충돌을 피하려고 별도의 대화를 임의로 만
 
 ## 프로젝트 설정
 
-`backend/projects.local.json`에서 프로젝트별 CLI와 프론트엔드 실행 방식을 정합니다.
+`BRIDGE_WORKSPACE_ROOT` 아래의 Git 저장소는 iPad 프로젝트 목록에 자동으로
+표시됩니다. `backend/projects.local.json`은 자동 발견된 프로젝트의 CLI와
+프론트엔드 실행 방식을 덮어쓰는 선택 설정입니다. 작업 루트 안의
+프로젝트는 `repoPath`를 쓰지 않아도 됩니다.
 
 ```json
 {
@@ -121,7 +124,6 @@ thread를 재개하며, 충돌을 피하려고 별도의 대화를 임의로 만
     {
       "projectId": "demo",
       "displayName": "Demo React App",
-      "repoPath": "~/Desktop/demo-react-app",
       "agent": "codex-cli",
       "testCommands": ["npm test"],
       "previewCommand": ["npm", "run", "dev", "--", "--host", "{host}", "--port", "{port}"]
@@ -143,27 +145,49 @@ python3 -m venv backend/.venv
 backend/.venv/bin/pip install -r requirements.txt
 ```
 
-`backend/.env`에는 OpenAI 키 없이 기기 토큰과 새 프로젝트 생성 위치만 둡니다.
+`backend/.env`에는 OpenAI 키 없이 작업 루트만 둡니다.
+Vibex는 이 루트에서 프로젝트를 찾고, iPad에서 생성한 프로젝트도
+같은 루트에 만듭니다.
 
 ```dotenv
-BRIDGE_DEVICE_TOKEN=충분히-긴-임의-문자열
 BRIDGE_WORKSPACE_ROOT=/Users/사용자/Desktop/Vibex/test-projects
+# 선택: 이 계정만 Tailscale Serve를 통해 접근 허용
+BRIDGE_TAILSCALE_ALLOWED_USERS=user@example.com
 ```
 
-그다음 PC에서 Bridge를 실행합니다.
+VS Code의 VIBEX 패널을 열면 Bridge가 `127.0.0.1:8787`에서 자동 실행됩니다.
+수동으로 확인할 때만 다음 명령을 사용합니다.
 
 ```bash
 cd backend
-.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8787
+.venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8787
 ```
 
-iPad 앱에는 `http://PC의-Tailscale-IP:8787`과 같은 Bridge 주소와 동일한 기기
-토큰을 입력합니다. `projects.local.json`을 바꾼 뒤에는 레지스트리를 다시 읽도록
-Bridge를 재시작해야 합니다.
+Mac과 물리 iPad의 Tailscale 앱에 같은 tailnet으로 로그인합니다. VIBEX 패널은
+Mac의 Tailscale 머신 이름을 `vibex-pc`로 맞추고 Serve를 자동 구성합니다. iPad는
+주소 입력 없이 MagicDNS의 `http://vibex-pc:8788`로 바로 접속합니다. iPad
+시뮬레이터는 Tailscale 없이 `http://127.0.0.1:8787`에 자동 연결됩니다.
+작업 루트나 `projects.local.json`을 바꾼 뒤에는 Bridge를 재시작해야 합니다.
+
+## VS Code VIBEX 패널
+
+`vscode-extension/`에는 Codex와 Claude Code를 함께 관리하는 VS Code 확장이
+있습니다. 공식 Codex/Claude 패널과 같은 Secondary Sidebar 위치에 `VIBEX` 탭을
+추가하며, iPad와 동일한 Bridge를 사용하므로 프로젝트 잠금·작업 결과·세션 ID가
+하나로 유지됩니다.
+
+개발 중에는 저장소 루트를 VS Code로 열고 `Run and Debug`에서
+`Vibex Extension`을 실행합니다. 새 Extension Development Host에서 `VIBEX` 탭을
+열면 백엔드 경로를 자동으로 찾아 실행합니다. 자동 탐색이 실패할 때만 설정에서
+`vibex.backendPath`를 지정합니다.
+
+패널에서 프로젝트별 Codex/Claude 선택, 텍스트 작업 전송, 진행 상태 확인, 선택지
+답변 및 작업 취소를 수행할 수 있습니다.
 
 ```
 src/             PC와 태블릿PC 간 연결 오픈소스
 ipad-app/        iPad 앱 — Swift 파일
+vscode-extension/ VS Code Secondary Sidebar WebView
 docs/            개발 계획 및 검증 기록
 protocol/        예제 스케치 이미지
 examples/        데모용 React 로그인 화면
