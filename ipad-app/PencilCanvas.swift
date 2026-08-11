@@ -80,6 +80,8 @@ struct PencilCanvas: UIViewRepresentable {
 
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
         context.coordinator.shapeSnapEnabled = shapeSnapEnabled
+        // 스냅은 새로 그린 잉크(펜/형광펜)에만. 지우개·올가미 뒤엔 안 돈다.
+        context.coordinator.currentKind = tool?.kind
         uiView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
         applyTool(uiView, context: context)
     }
@@ -108,6 +110,7 @@ struct PencilCanvas: UIViewRepresentable {
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let toolPicker = PKToolPicker()
         var shapeSnapEnabled: Bool
+        var currentKind: PenKind?
 
         init(shapeSnapEnabled: Bool) {
             self.shapeSnapEnabled = shapeSnapEnabled
@@ -116,6 +119,7 @@ struct PencilCanvas: UIViewRepresentable {
         /// 획을 뗀 순간. 도형 모드면 방금 그린 획을 인식해 스냅
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             guard shapeSnapEnabled else { return }
+            guard currentKind == .pen || currentKind == .marker else { return }
             guard let last = canvasView.drawing.strokes.last else { return }
 
             let points = sampledPoints(of: last)
