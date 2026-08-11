@@ -22,6 +22,8 @@ enum PenKind: String, CaseIterable {
 }
 
 struct DrawTool: Equatable {
+    static let palette = ["#111111", "#2f6bff", "#e0564a", "#1f9d55", "#f59e0b", "#8b5cf6"]
+
     var kind: PenKind = .pen
     var colorHex: String = "#111111"
     var width: CGFloat = 5

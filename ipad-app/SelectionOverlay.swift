@@ -47,6 +47,20 @@ struct SelectionOverlay: View {
                         .background(.thinMaterial, in: Circle())
                 }
                 .position(x: box.maxX, y: box.minY - 22)
+
+                // 선택 색 변경
+                HStack(spacing: 8) {
+                    ForEach(DrawTool.palette, id: \.self) { hex in
+                        Circle()
+                            .fill(Color(uiColor: UIColor(hex: hex)))
+                            .frame(width: 22, height: 22)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                            .onTapGesture { recolor(hex) }
+                    }
+                }
+                .padding(8)
+                .background(.regularMaterial, in: Capsule())
+                .position(x: box.midX, y: box.maxY + 30)
             }
         }
         .gesture(drag)
@@ -193,6 +207,19 @@ struct SelectionOverlay: View {
         let changed = canvasView.drawing
         canvasView.drawing = PKDrawing(strokes: baseStrokes) // 변형 전으로 되돌린 뒤
         canvasView.setDrawingUndoably(changed, actionName: actionName)
+    }
+
+    private func recolor(_ hex: String) {
+        let color = UIColor(hex: hex)
+        var strokes = canvasView.drawing.strokes
+        for i in selection where strokes.indices.contains(i) {
+            let s = strokes[i]
+            strokes[i] = PKStroke(
+                ink: PKInk(s.ink.inkType, color: color),
+                path: s.path, transform: s.transform, mask: s.mask
+            )
+        }
+        canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "색 변경")
     }
 
     private func deleteSelection() {
