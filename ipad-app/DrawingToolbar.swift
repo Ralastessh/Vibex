@@ -12,6 +12,7 @@ struct DrawingToolbar: View {
             HStack(spacing: 4) {
                 toolButton(.pen, "pencil.tip")
                 toolButton(.marker, "highlighter")
+                toolButton(.arrow, "arrow.up.right")
                 toolButton(.eraser, "eraser")
                 toolButton(.lasso, "lasso")
             }
