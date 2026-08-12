@@ -17,6 +17,9 @@ ipad-app/**/*.xcuserstate
 ipad-app/**/DerivedData/
 .build/
 
+# 개인 작업 로그 (원격에 올리지 않음)
+DRAWING_PROGRESS.md
+
 # macOS
 .DS_Store
 
