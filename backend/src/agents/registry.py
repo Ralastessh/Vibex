@@ -41,8 +41,11 @@ _CANDIDATES = (
             ("gpt-5.6-sol", "GPT-5.6 Sol"),
             ("gpt-5.6-terra", "GPT-5.6 Terra"),
             ("gpt-5.6-luna", "GPT-5.6 Luna"),
+            ("gpt-5.5", "GPT-5.5"),
+            ("gpt-5.4", "GPT-5.4"),
+            ("gpt-5.4-mini", "GPT-5.4 Mini"),
         ),
-        (("", "기본 추론"), ("low", "낮음"), ("medium", "보통"), ("high", "높음"), ("xhigh", "매우 높음")),
+        (("", "기본 추론"), ("low", "낮음"), ("medium", "보통"), ("high", "높음"), ("xhigh", "매우 높음"), ("max", "울트라")),
         (("", "기본 속도"), ("fast", "Fast · 크레딧 추가")),
     ),
     (

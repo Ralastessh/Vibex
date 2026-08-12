@@ -2,7 +2,7 @@
   "name": "vibex",
   "displayName": "Vibex",
   "description": "iPad와 VS Code에서 같은 Vibex 프로젝트 및 LLM 대화를 이어갑니다.",
-  "version": "0.8.0",
+  "version": "0.8.6",
   "publisher": "vibex-local",
   "private": true,
   "engines": {

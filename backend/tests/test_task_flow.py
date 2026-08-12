@@ -569,6 +569,26 @@ def test_new_thread_rejects_an_existing_thread_id(api):
     assert response.status_code == 422
 
 
+async def test_api_resume_forwards_the_selected_thread_id(api):
+    api.app.state.registry.set_agent("demo", "codex-cli")
+    created = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "이 대화에서 계속해줘",
+            "threadMode": "resume",
+            "threadId": "selected-thread",
+        },
+    )
+    assert created.status_code == 202
+
+    await _settle(api)
+
+    assert api.app.state.adapter.find_calls == 0
+    assert api.app.state.adapter.calls[-1][1] == "selected-thread"
+
+
 def test_explicit_thread_modes_are_not_advertised_for_claude(api):
     response = api.post(
         "/api/v1/tasks",

@@ -162,7 +162,6 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
     "errorBanner",
     "emptyState",
     "taskList",
-    "cancelButton",
     "promptInput",
     "sendButton",
     "scrollToBottomButton",
@@ -173,7 +172,12 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
     "speedSelect",
     "runtimeButton",
     "runtimePanel",
-    "backButton",
+    "modelChoices",
+    "effortChoices",
+    "speedChoices",
+    "modelGroupButton",
+    "speedGroupButton",
+    "runtimeModelValue",
     "historyButton",
     "newThreadButton",
     "threadMenuButton",
@@ -181,7 +185,6 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
     "renameThreadButton",
     "archiveThreadButton",
     "historyPanel",
-    "historyNewButton",
     "threadList",
     "loadMoreThreadsButton",
     "conversationPanel",
@@ -194,6 +197,12 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
   );
 });
 
+test("the first Codex view is only the conversation list", () => {
+  assert.doesNotMatch(html, /id="backButton"|class="history-heading"/);
+  assert.doesNotMatch(html, /이 프로젝트의 Codex · VS Code · CLI 대화/);
+  assert.match(webviewSource, /threadView:\s*"history"/);
+});
+
 test("unsupported decorative controls are not rendered as dummy UI", () => {
   const forbiddenClasses = new Set([
     "back-button",
@@ -201,7 +210,7 @@ test("unsupported decorative controls are not rendered as dummy UI", () => {
     "approval-label",
     "assistant-actions",
   ]);
-  const forbiddenLabels = /^(뒤로가기|첨부|나 대신 승인|좋아요|싫어요)$/;
+  const forbiddenLabels = /^(뒤로가기|첨부|나 대신 승인)$/;
   const violations = [];
 
   for (const tag of htmlTags) {
@@ -249,6 +258,8 @@ test("every visible WebView action has a postMessage and extension-host route", 
     "openThread",
     "renameThread",
     "archiveThread",
+    "setResponseFeedback",
+    "openResponse",
   ];
 
   assert.deepEqual(
@@ -256,6 +267,8 @@ test("every visible WebView action has a postMessage and extension-host route", 
     [],
     "WebView action postMessage가 빠졌습니다.",
   );
+  assert.match(extensionSource, /globalState\.update\(RESPONSE_FEEDBACK_KEY/);
+  assert.match(webviewSource, /aria-pressed/);
   assert.deepEqual(
     actionTypes.filter((type) => !hostCases.has(type)),
     [],
