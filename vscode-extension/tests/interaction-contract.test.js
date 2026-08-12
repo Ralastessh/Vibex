@@ -108,25 +108,28 @@ test("send is single-flight, optimistic, and frees the composer for a new draft"
   for (const field of ["model", "effort", "speedMode"]) {
     assert.match(hostCreate, new RegExp(`body\\.set\\(\"${field}\", runOptions\\.${field}\\)`));
   }
+  const runtimeChoices = functionBody(webviewSource, "renderRuntimeChoices");
+  assert.match(runtimeChoices, /\[\.\.\.select\.children\]/, "실제 HTMLCollection도 배열로 변환해야 합니다.");
+  assert.match(runtimeChoices, /role",\s*"menuitemradio"/);
 });
 
-test("active work preserves draft input while locking send and conflicting controls", () => {
+test("active work preserves draft input while the send button becomes stop", () => {
   const renderComposer = functionBody(webviewSource, "renderComposer");
-  assert.match(renderComposer, /const active\s*=\s*hasActiveTask\(\)/);
+  assert.match(renderComposer, /const activeTask\s*=\s*state\.tasks\.findLast/);
   assert.match(renderComposer, /dom\.promptInput\.disabled\s*=\s*inputDisabled/);
   assert.doesNotMatch(renderComposer, /dom\.promptInput\.disabled\s*=\s*inputDisabled\s*\|\|\s*active/);
-  assert.match(renderComposer, /dom\.sendButton\.disabled\s*=\s*inputDisabled\s*\|\|\s*active/);
+  assert.match(renderComposer, /const mode\s*=\s*activeTask\s*\?\s*"stop"\s*:\s*"send"/);
+  assert.match(renderComposer, /classList\.toggle\("is-stop"/);
+  assert.match(renderComposer, /mode\s*===\s*"stop"\s*\?\s*"작업 중단"\s*:\s*"전송"/);
   for (const control of ["modelSelect", "effortSelect", "speedSelect"]) {
-    assert.match(renderComposer, new RegExp(`dom\\.${control}\\.disabled[\\s\\S]*\\|\\| active`));
+    assert.doesNotMatch(renderComposer, new RegExp(`dom\\.${control}\\.disabled[^;]*active`));
   }
   assert.match(renderComposer, /다음 요청을 미리 입력할 수 있습니다/);
 
-  const cancelListener = webviewSource.match(
-    /dom\.cancelButton\.addEventListener\("click",\s*\(\)\s*=>\s*\{([\s\S]*?)\n\}\);/,
-  )?.[1];
-  assert.ok(cancelListener, "중단 버튼 click listener가 있어야 합니다.");
-  assert.match(cancelListener, /findLast\(\(candidate\)\s*=>\s*ACTIVE_STATUSES\.has/);
-  assert.match(cancelListener, /type:\s*"cancel"[\s\S]*taskId:\s*task\.taskId/);
+  const primaryAction = functionBody(webviewSource, "handlePrimaryAction");
+  assert.match(primaryAction, /findLast\(\(candidate\)\s*=>\s*ACTIVE_STATUSES\.has/);
+  assert.match(primaryAction, /type:\s*"cancel"[\s\S]*taskId:\s*task\.taskId/);
+  assert.doesNotMatch(webviewSource, /id="cancelButton"|dom\.cancelButton/);
   assert.match(extensionSource, /case\s+"cancel"[\s\S]*\/cancel[\s\S]*method:\s*"POST"/);
 });
 
@@ -228,10 +231,19 @@ test("copy completion acknowledgement is reflected in the clicked control", () =
   assert.match(complete, /replaceChildren\(icon\("check"\)\)/);
 });
 
+test("response feedback and expansion are real persisted host actions", () => {
+  assert.match(webviewSource, /type:\s*"setResponseFeedback"/);
+  assert.match(webviewSource, /type:\s*"openResponse"/);
+  assert.match(extensionSource, /case\s+"setResponseFeedback"/);
+  assert.match(extensionSource, /case\s+"openResponse"/);
+  assert.match(extensionSource, /globalState\.update\(RESPONSE_FEEDBACK_KEY/);
+  assert.match(extensionSource, /openTextDocument\(\{[\s\S]*language:\s*"markdown"/);
+});
+
 test("an active turn accepts a follow-up draft without allowing conflicting submission", () => {
   const composer = functionBody(webviewSource, "renderComposer");
   assert.match(composer, /dom\.promptInput\.disabled\s*=\s*inputDisabled/);
-  assert.match(composer, /dom\.sendButton\.disabled\s*=\s*inputDisabled\s*\|\|\s*active/);
+  assert.match(composer, /mode\s*===\s*"stop"[\s\S]*state\.cancelPendingTaskId/);
   assert.match(composer, /다음 요청을 미리 입력할 수 있습니다/);
 });
 

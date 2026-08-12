@@ -22,9 +22,10 @@ const state = {
   selectedProjectId: persistedState.selectedProjectId || null,
   runOptions: persistedState.runOptions || {},
   threadSelections: persistedState.threadSelections || {},
-  threadView: "conversation",
+  threadView: "history",
   threads: [],
   threadsNextCursor: null,
+  threadListProjectId: null,
   threadDetail: null,
   threadListSignature: null,
   tasks: [],
@@ -34,6 +35,7 @@ const state = {
   pendingAnswers: new Map(),
   questionErrors: new Map(),
   copyTargets: new Map(),
+  responseFeedback: {},
   cancelPendingTaskId: null,
   cancelPendingProjectId: null,
   refreshSequence: 0,
@@ -63,7 +65,6 @@ const dom = Object.fromEntries(
     "errorBanner",
     "emptyState",
     "taskList",
-    "cancelButton",
     "promptInput",
     "sendButton",
     "scrollToBottomButton",
@@ -74,7 +75,12 @@ const dom = Object.fromEntries(
     "modelSelect",
     "effortSelect",
     "speedSelect",
-    "backButton",
+    "modelChoices",
+    "effortChoices",
+    "speedChoices",
+    "modelGroupButton",
+    "speedGroupButton",
+    "runtimeModelValue",
     "historyButton",
     "newThreadButton",
     "threadMenuButton",
@@ -82,7 +88,6 @@ const dom = Object.fromEntries(
     "renameThreadButton",
     "archiveThreadButton",
     "historyPanel",
-    "historyNewButton",
     "threadList",
     "loadMoreThreadsButton",
     "conversationPanel",
@@ -105,9 +110,10 @@ dom.projectSelect.addEventListener("change", () => {
   state.tasks = [];
   state.threads = [];
   state.threadsNextCursor = null;
+  state.threadListProjectId = null;
   state.threadDetail = null;
   state.threadListSignature = null;
-  state.threadView = "conversation";
+  state.threadView = selectedProject()?.agent === "codex-cli" ? "history" : "conversation";
   state.error = "";
   persistViewState();
   turnNodes.clear();
@@ -118,7 +124,7 @@ dom.projectSelect.addEventListener("change", () => {
 for (const control of [dom.modelSelect, dom.effortSelect, dom.speedSelect]) {
   control.addEventListener("change", saveRunOptions);
 }
-dom.sendButton.addEventListener("click", sendTask);
+dom.sendButton.addEventListener("click", handlePrimaryAction);
 dom.promptInput.addEventListener("input", () => {
   resizeComposer();
   renderComposer();
@@ -126,36 +132,24 @@ dom.promptInput.addEventListener("input", () => {
 dom.promptInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
-    sendTask();
+    handlePrimaryAction();
   }
 });
-dom.cancelButton.addEventListener("click", () => {
+
+function handlePrimaryAction() {
   const task = state.tasks.findLast((candidate) => ACTIVE_STATUSES.has(candidate.status));
-  if (!task || state.cancelPendingTaskId) return;
+  if (!task) return sendTask();
+  if (state.cancelPendingTaskId) return;
   state.cancelPendingTaskId = task.taskId;
   state.cancelPendingProjectId = task.projectId;
-  dom.cancelButton.disabled = true;
-  vscode.postMessage({
-    type: "cancel",
-    requestId: crypto.randomUUID(),
-    taskId: task.taskId,
-    projectId: state.selectedProjectId,
-  });
-});
+  vscode.postMessage({ type: "cancel", requestId: crypto.randomUUID(), taskId: task.taskId, projectId: state.selectedProjectId });
+  renderComposer();
+}
 dom.scrollToBottomButton.addEventListener("click", () => {
   scrollToDocumentBottom("smooth");
 });
-dom.backButton.addEventListener("click", () => {
-  if (state.threadView === "history") {
-    state.threadView = "conversation";
-    render();
-  } else {
-    openHistory();
-  }
-});
 dom.historyButton.addEventListener("click", openHistory);
 dom.newThreadButton.addEventListener("click", startNewThread);
-dom.historyNewButton.addEventListener("click", startNewThread);
 dom.loadMoreThreadsButton.addEventListener("click", () => {
   if (!state.selectedProjectId || !state.threadsNextCursor) return;
   vscode.postMessage({
@@ -197,8 +191,18 @@ dom.runtimeButton.addEventListener("click", () => {
   const opening = dom.runtimePanel.classList.contains("hidden");
   dom.runtimePanel.classList.toggle("hidden", !opening);
   dom.runtimeButton.setAttribute("aria-expanded", String(opening));
-  if (opening) requestAnimationFrame(() => dom.modelSelect.focus());
+  if (opening) requestAnimationFrame(() => dom.effortChoices.querySelector("button")?.focus());
 });
+for (const [button, choices] of [
+  [dom.modelGroupButton, dom.modelChoices],
+  [dom.speedGroupButton, dom.speedChoices],
+]) {
+  button.addEventListener("click", () => {
+    const expanded = button.getAttribute("aria-expanded") !== "false";
+    button.setAttribute("aria-expanded", String(!expanded));
+    choices.classList.toggle("hidden", expanded);
+  });
+}
 
 document.addEventListener("pointerdown", (event) => {
   if (
@@ -266,6 +270,18 @@ window.addEventListener("message", (event) => {
     state.projects = message.projects;
     state.selectedProjectId = message.selectedProjectId;
     state.tasks = message.tasks;
+    state.responseFeedback = message.responseFeedback || state.responseFeedback;
+    const selected = state.projects.find(
+      (project) => project.projectId === state.selectedProjectId,
+    );
+    if (
+      selected?.agent === "codex-cli" &&
+      state.threadView === "history" &&
+      state.threadListProjectId !== state.selectedProjectId
+    ) {
+      state.threadListProjectId = state.selectedProjectId;
+      vscode.postMessage({ type: "loadThreads", projectId: state.selectedProjectId });
+    }
     const selection = currentThreadSelection();
     if (selection.mode === "new" && selection.requestId) {
       const materialized = state.tasks.find(
@@ -307,6 +323,7 @@ window.addEventListener("message", (event) => {
     }
   } else if (message.type === "threadsLoaded") {
     if (message.projectId !== state.selectedProjectId) return;
+    state.threadListProjectId = message.projectId;
     const incoming = Array.isArray(message.threads) ? message.threads : [];
     if (message.append) {
       const known = new Set(state.threads.map((thread) => thread.threadId));
@@ -342,6 +359,11 @@ window.addEventListener("message", (event) => {
     state.error = message.message || "요청을 전송하지 못했습니다.";
   } else if (message.type === "copyTextCompleted") {
     completeCopy(message.requestId);
+  } else if (message.type === "responseFeedbackChanged") {
+    if (message.responseKey) {
+      if (message.feedback) state.responseFeedback[message.responseKey] = message.feedback;
+      else delete state.responseFeedback[message.responseKey];
+    }
   } else if (message.type === "answerAccepted") {
     const pending = pendingAnswerForRequest(message.requestId);
     if (pending) {
@@ -533,18 +555,55 @@ function renderRunOptions() {
   fillSelect(dom.speedSelect, agent?.speedModes || [], saved.speedMode);
 
   const modelLabel = selectedOptionLabel(dom.modelSelect);
-  const effortLabel = selectedOptionLabel(dom.effortSelect);
-  const speedLabel = selectedOptionLabel(dom.speedSelect);
-  const labels = [
-    modelLabel && !modelLabel.startsWith("기본")
-      ? modelLabel.replace(/^GPT-/, "")
-      : agent?.displayName || "Agent",
-  ];
-  if (effortLabel && !effortLabel.startsWith("기본")) labels.push(effortLabel);
-  if (speedLabel && !speedLabel.startsWith("기본")) labels.push(speedLabel);
-  dom.selectedAgentLabel.textContent = labels.join(" · ");
-  dom.runtimeButton.disabled = !project || !agent || hasActiveTask();
+  dom.selectedAgentLabel.textContent = modelLabel && !modelLabel.startsWith("기본")
+    ? modelLabel.replace(/^GPT-/, "")
+    : agent?.displayName || "Agent";
+  dom.runtimeModelValue.textContent = modelLabel && !modelLabel.startsWith("기본")
+    ? modelLabel
+    : agent?.displayName || "모델";
+  renderRuntimeChoices(dom.effortChoices, dom.effortSelect, "effort");
+  renderRuntimeChoices(dom.modelChoices, dom.modelSelect, "model");
+  renderRuntimeChoices(dom.speedChoices, dom.speedSelect, "speed");
+  dom.runtimeButton.disabled = !project || !agent;
   if (dom.runtimeButton.disabled) closeRuntime();
+}
+
+function renderRuntimeChoices(container, select, kind) {
+  const selected = select.value || "";
+  const visibleOptions = [...select.children].filter((option) => (
+    kind === "speed" || option.value !== ""
+  ));
+  container.replaceChildren(...visibleOptions.map((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "runtime-choice";
+    button.setAttribute("role", "menuitemradio");
+    button.setAttribute("aria-checked", String(option.value === selected));
+    const copy = document.createElement("span");
+    copy.className = "runtime-choice-copy";
+    copy.append(textElement("span", runtimeChoiceLabel(kind, option.value, option.textContent), "runtime-choice-title"));
+    const description = runtimeChoiceDescription(kind, option.value);
+    if (description) copy.append(textElement("span", description, "runtime-choice-description"));
+    button.append(copy);
+    if (option.value === selected) button.append(textElement("span", "✓", "runtime-check"));
+    button.addEventListener("click", () => {
+      select.value = option.value;
+      saveRunOptions();
+      renderRunOptions();
+    });
+    return button;
+  }));
+}
+
+function runtimeChoiceLabel(kind, value, fallback) {
+  if (kind === "effort") return ({ "": "기본", low: "Light", medium: "Medium", high: "High", xhigh: "Extra High", max: "울트라" })[value] || fallback;
+  if (kind === "speed") return value === "fast" ? "⚡ 고속" : "표준";
+  return fallback;
+}
+
+function runtimeChoiceDescription(kind, value) {
+  if (kind !== "speed") return "";
+  return value === "fast" ? "1.5x speed, increased usage" : "기본 속도";
 }
 
 function fillSelect(select, options, selectedValue) {
@@ -610,6 +669,7 @@ function currentThreadSelection() {
 function openHistory() {
   if (!codexThreadsAvailable() || !state.selectedProjectId) return;
   state.threadView = "history";
+  state.threadListProjectId = state.selectedProjectId;
   closeSettings();
   closeRuntime();
   closeThreadMenu();
@@ -667,6 +727,7 @@ function renderThreadChrome() {
   dom.threadMenuButton.classList.toggle("hidden", !hasThread || history);
   if (!hasThread || history) closeThreadMenu();
   dom.historyButton.classList.toggle("hidden", !codex || history);
+  document.querySelector(".title-row")?.classList.toggle("hidden", history);
   dom.projectTitle.textContent = history ? "최근 대화" : threadTitle();
   dom.historyPanel.classList.toggle("hidden", !history);
   dom.conversationPanel.classList.toggle("hidden", history);
@@ -770,7 +831,10 @@ function renderTasks() {
   }
 
   for (const task of visibleTasks) {
-    const signature = JSON.stringify(task);
+    const signature = JSON.stringify([
+      task,
+      state.responseFeedback[responseFeedbackKey(task)] || null,
+    ]);
     let cached = turnNodes.get(task.taskId);
     if (!cached || cached.signature !== signature) {
       const node = taskTurn(task);
@@ -781,9 +845,6 @@ function renderTasks() {
     dom.taskList.append(cached.node);
   }
 
-  const active = state.tasks.findLast((task) => ACTIVE_STATUSES.has(task.status));
-  dom.cancelButton.classList.toggle("hidden", !active);
-  dom.cancelButton.disabled = !active || state.cancelPendingTaskId === active?.taskId;
   if (shouldFollow) {
     requestAnimationFrame(() => {
       scrollToDocumentBottom("auto");
@@ -948,8 +1009,18 @@ function taskTurn(task) {
     const actions = document.createElement("nav");
     actions.className = "response-actions";
     actions.setAttribute("aria-label", "답변 작업");
+    const responseKey = responseFeedbackKey(task);
     actions.append(iconButton("copy", "답변 복사", (event) => {
       requestCopy(event.currentTarget, task.agentReply);
+    }, "response-action"));
+    actions.append(responseFeedbackButton("thumb-up", "좋아요", responseKey, "like"));
+    actions.append(responseFeedbackButton("thumb-down", "싫어요", responseKey, "dislike"));
+    actions.append(iconButton("expand", "답변 크게 열기", () => {
+      vscode.postMessage({
+        type: "openResponse",
+        text: task.agentReply,
+        title: task.userMessage || threadTitle(),
+      });
     }, "response-action"));
     assistant.append(actions);
   }
@@ -1340,7 +1411,7 @@ function codeBlock(text, language) {
   const header = document.createElement("div");
   header.className = "code-header";
   header.append(
-    textElement("span", language || "Code"),
+    textElement("span", codeLanguageLabel(language)),
     iconButton("copy", "코드 복사", (event) => {
       requestCopy(event.currentTarget, text);
     }, "code-copy"),
@@ -1352,6 +1423,15 @@ function codeBlock(text, language) {
   pre.append(code);
   wrapper.append(header, pre);
   return wrapper;
+}
+
+function codeLanguageLabel(language) {
+  const original = String(language || "").trim();
+  const normalized = original.toLowerCase();
+  if (!normalized || ["text", "txt", "plain", "plaintext"].includes(normalized)) {
+    return "일반 텍스트";
+  }
+  return original;
 }
 
 function appendInline(parent, source, projectId) {
@@ -1508,18 +1588,29 @@ function reconcilePendingAnswers() {
 
 function renderComposer() {
   const project = selectedProject();
-  const active = hasActiveTask();
+  const activeTask = state.tasks.findLast((task) => ACTIVE_STATUSES.has(task.status));
+  const active = Boolean(activeTask) || state.optimisticTurns.some((turn) => turn.projectId === state.selectedProjectId);
   const inputDisabled = !state.connected || !project || project.status === "unavailable";
   dom.promptInput.disabled = inputDisabled;
-  dom.sendButton.disabled = inputDisabled || active || state.pendingRequestId || !dom.promptInput.value.trim();
-  dom.modelSelect.disabled = Number(dom.modelSelect.dataset.optionCount || 0) <= 1 || active;
-  dom.effortSelect.disabled = Number(dom.effortSelect.dataset.optionCount || 0) <= 1 || active;
-  dom.speedSelect.disabled = Number(dom.speedSelect.dataset.optionCount || 0) <= 1 || active;
+  const mode = activeTask ? "stop" : "send";
+  if (dom.sendButton.dataset.mode !== mode) {
+    dom.sendButton.dataset.mode = mode;
+    dom.sendButton.replaceChildren(mode === "stop" ? textElement("span", "", "stop-glyph") : icon("send"));
+  }
+  dom.sendButton.classList.toggle("is-stop", mode === "stop");
+  dom.sendButton.setAttribute("aria-label", mode === "stop" ? "작업 중단" : "전송");
+  dom.sendButton.title = mode === "stop" ? "작업 중단" : "전송";
+  dom.sendButton.disabled = inputDisabled || (mode === "stop"
+    ? state.cancelPendingTaskId === activeTask?.taskId
+    : active || state.pendingRequestId || !dom.promptInput.value.trim());
+  dom.modelSelect.disabled = Number(dom.modelSelect.dataset.optionCount || 0) <= 1;
+  dom.effortSelect.disabled = Number(dom.effortSelect.dataset.optionCount || 0) <= 1;
+  dom.speedSelect.disabled = Number(dom.speedSelect.dataset.optionCount || 0) <= 1;
   dom.composerHint.textContent = active
-    ? "작업 중 · 다음 요청을 미리 입력할 수 있습니다."
+    ? "로컬에서 작업 · 다음 요청을 미리 입력할 수 있습니다"
     : state.pendingRequestId
       ? "요청을 전송하는 중…"
-      : "로컬에서 작업 · Enter 전송 · Shift+Enter 줄바꿈";
+      : "로컬에서 작업";
   positionScrollToBottomButton();
 }
 
@@ -1666,6 +1757,27 @@ function iconButton(name, label, handler, className = "") {
   return button;
 }
 
+function responseFeedbackKey(task) {
+  const projectId = task.projectId || state.selectedProjectId || "project";
+  const threadId = task.threadId || task.sessionId || "";
+  const turnId = task.turnId || "";
+  if (threadId && turnId) return `${projectId}:thread:${threadId}:turn:${turnId}`;
+  return `${projectId}:task:${task.taskId}`;
+}
+
+function responseFeedbackButton(name, label, responseKey, feedback) {
+  const selected = state.responseFeedback[responseKey] === feedback;
+  const button = iconButton(name, label, () => {
+    vscode.postMessage({
+      type: "setResponseFeedback",
+      responseKey,
+      feedback: selected ? null : feedback,
+    });
+  }, "response-action response-feedback");
+  button.setAttribute("aria-pressed", String(selected));
+  return button;
+}
+
 function requestCopy(button, value) {
   if (!button) return;
   const requestId = crypto.randomUUID();
@@ -1708,6 +1820,9 @@ function icon(name) {
     terminal: ["m5 7 4 4-4 4", "M11 15h8"],
     file: ["M6 3h8l4 4v14H6z", "M14 3v5h5"],
     check: ["m5 12 4 4L19 6"],
+    "thumb-up": ["M7 10v10H3V10z", "M7 18h10.2a2 2 0 0 0 2-1.7l1-6A2 2 0 0 0 18.2 8H14l.6-3a2.3 2.3 0 0 0-4.2-1.6L7 10"],
+    "thumb-down": ["M7 14V4H3v10z", "M7 6h10.2a2 2 0 0 1 2 1.7l1 6a2 2 0 0 1-2 2.3H14l.6 3a2.3 2.3 0 0 1-4.2 1.6L7 14"],
+    expand: ["M14 5h5v5", "m19 5-6 6", "M10 19H5v-5", "m5 19 6-6"],
     spark: ["m12 3 1.3 4.7L18 9l-4.7 1.3L12 15l-1.3-4.7L6 9l4.7-1.3z"],
   };
   for (const data of definitions[name] || definitions.spark) {

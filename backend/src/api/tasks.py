@@ -238,6 +238,7 @@ async def create_task(
             task.task_id,
             project,
             build_visual(typed_note=typedNote, test_commands=project.test_commands),
+            session_id=task.thread_id,
             image_paths=image_paths,
             model=task.agent_model,
             effort=task.reasoning_effort,
@@ -250,6 +251,7 @@ async def create_task(
         )
         _spawn(
             request, task.task_id, project, prompt,
+            session_id=task.thread_id,
             model=task.agent_model,
             effort=task.reasoning_effort,
             speed_mode=task.speed_mode,

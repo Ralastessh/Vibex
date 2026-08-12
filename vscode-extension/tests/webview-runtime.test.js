@@ -15,11 +15,12 @@ const DOM_IDS = [
   "pairingStatus", "tailscaleURL", "setupTailscaleButton", "refreshButton",
   "settingsButton", "connectionDot", "connectionText", "projectSelect",
   "projectState", "agentSwitcher", "agentNote", "errorBanner", "emptyState",
-  "taskList", "cancelButton", "promptInput", "sendButton", "composerHint",
+  "taskList", "promptInput", "sendButton", "composerHint",
   "scrollToBottomButton", "selectedAgentLabel", "modelSelect", "effortSelect", "speedSelect",
-  "runtimeButton", "runtimePanel",
-  "backButton", "historyButton", "newThreadButton", "threadMenuButton", "threadMenu",
-  "renameThreadButton", "archiveThreadButton", "historyPanel", "historyNewButton",
+  "runtimeButton", "runtimePanel", "modelChoices", "effortChoices", "speedChoices",
+  "modelGroupButton", "speedGroupButton", "runtimeModelValue",
+  "historyButton", "newThreadButton", "threadMenuButton", "threadMenu",
+  "renameThreadButton", "archiveThreadButton", "historyPanel",
   "threadList", "loadMoreThreadsButton", "conversationPanel", "composerRoot",
 ];
 
@@ -224,17 +225,16 @@ class FakeDocument {
     }
     this.elements.get("promptInput").tagName = "TEXTAREA";
     for (const id of [
-      "sendButton", "cancelButton", "settingsButton", "refreshButton", "scrollToBottomButton",
+      "sendButton", "settingsButton", "refreshButton", "scrollToBottomButton",
       "runtimeButton",
-      "backButton", "historyButton", "newThreadButton", "threadMenuButton",
-      "renameThreadButton", "archiveThreadButton", "historyNewButton", "loadMoreThreadsButton",
+      "historyButton", "newThreadButton", "threadMenuButton",
+      "renameThreadButton", "archiveThreadButton", "loadMoreThreadsButton",
     ]) {
       this.elements.get(id).tagName = "BUTTON";
     }
     this.elements.get("connectionPanel").classList.add("hidden");
     this.elements.get("workspacePanel").classList.add("hidden");
     this.elements.get("errorBanner").classList.add("hidden");
-    this.elements.get("cancelButton").classList.add("hidden");
     this.elements.get("scrollToBottomButton").classList.add("hidden");
     this.elements.get("runtimePanel").classList.add("hidden");
     this.elements.get("threadMenu").classList.add("hidden");
@@ -244,7 +244,7 @@ class FakeDocument {
     for (const id of ["historyButton", "newThreadButton"]) {
       this.elements.get(id).classList.add("codex-only");
     }
-    for (const id of ["backButton", "threadMenuButton"]) {
+    for (const id of ["threadMenuButton"]) {
       this.elements.get(id).classList.add("thread-only");
     }
     this.listeners = new Map();
@@ -488,7 +488,7 @@ test("runtime: settings, keyboard close, and run-option changes behave through e
   assert.equal(harness.persisted.at(-1).runOptions["codex-cli"].speedMode, "fast");
 });
 
-test("runtime: active work exposes stop and sends the exact active task id", () => {
+test("runtime: active work morphs send into stop and sends the exact active task id", () => {
   const harness = createHarness();
   harness.sendHostMessage(connectedState({
     projects: [{
@@ -507,18 +507,19 @@ test("runtime: active work exposes stop and sends the exact active task id", () 
     }],
   }));
   assert.equal(harness.element("promptInput").disabled, false);
-  assert.equal(harness.element("sendButton").disabled, true);
+  assert.equal(harness.element("sendButton").disabled, false);
+  assert.equal(harness.element("sendButton").getAttribute("aria-label"), "작업 중단");
+  assert.equal(harness.element("sendButton").classList.contains("is-stop"), true);
   harness.element("promptInput").value = "작업이 끝난 뒤 보낼 초안";
   harness.element("promptInput").dispatch("input");
   assert.equal(harness.element("promptInput").value, "작업이 끝난 뒤 보낼 초안");
-  assert.equal(harness.element("cancelButton").classList.contains("hidden"), false);
-  harness.element("cancelButton").dispatch("click");
+  harness.element("sendButton").dispatch("click");
   const cancel = harness.latestMessage("cancel");
   assert.equal(cancel.type, "cancel");
   assert.equal(cancel.taskId, "task-running");
   assert.equal(cancel.projectId, "style-compass");
   assert.match(cancel.requestId, /^[0-9a-f-]{36}$/);
-  harness.element("cancelButton").dispatch("click");
+  harness.element("sendButton").dispatch("click");
   assert.equal(harness.messages.filter((message) => message.type === "cancel").length, 1);
 });
 
@@ -699,6 +700,61 @@ test("runtime: copy acknowledgement shows a check and restores the original acti
   assert.equal(button.getAttribute("aria-label"), "메시지 복사");
 });
 
+test("runtime: response actions copy, rate, and open the exact assistant reply", () => {
+  const harness = createHarness();
+  harness.sendHostMessage(connectedState({
+    tasks: [{
+      taskId: "task-actions",
+      projectId: "style-compass",
+      threadId: "thread-actions",
+      turnId: "turn-actions",
+      status: "completed",
+      userMessage: "설명해줘",
+      agentReply: "정확한 답변",
+      createdAt: "2026-08-11T00:00:00Z",
+      completedAt: "2026-08-11T00:00:01Z",
+    }],
+  }));
+
+  let actions = harness.element("taskList").querySelectorAll(".response-action");
+  assert.deepEqual(
+    actions.map((button) => button.getAttribute("aria-label")),
+    ["답변 복사", "좋아요", "싫어요", "답변 크게 열기"],
+  );
+
+  actions[1].dispatch("click");
+  const liked = harness.latestMessage("setResponseFeedback");
+  assert.equal(liked.responseKey, "style-compass:thread:thread-actions:turn:turn-actions");
+  assert.equal(liked.feedback, "like");
+  harness.sendHostMessage({ ...liked, type: "responseFeedbackChanged" });
+
+  actions = harness.element("taskList").querySelectorAll(".response-action");
+  assert.equal(actions[1].getAttribute("aria-pressed"), "true");
+  actions[1].dispatch("click");
+  assert.equal(harness.latestMessage("setResponseFeedback").feedback, null);
+
+  actions[3].dispatch("click");
+  assert.equal(harness.latestMessage("openResponse").text, "정확한 답변");
+});
+
+test("runtime: text fences use the Korean plain-text label", () => {
+  const harness = createHarness();
+  harness.sendHostMessage(connectedState({
+    tasks: [{
+      taskId: "task-code",
+      projectId: "style-compass",
+      status: "completed",
+      userMessage: "프로세스를 보여줘",
+      agentReply: "```text\nPID 33778 — Python\n```",
+      createdAt: "2026-08-11T00:00:00Z",
+      completedAt: "2026-08-11T00:00:01Z",
+    }],
+  }));
+  const codeBlock = harness.element("taskList").querySelector(".code-block");
+  assert.match(codeBlock.querySelector(".code-header").textContent, /일반 텍스트/);
+  assert.equal(codeBlock.querySelector("code").textContent, "PID 33778 — Python");
+});
+
 test("runtime: completed work duration does not grow after review or undo updates", () => {
   const harness = createHarness();
   harness.sendHostMessage(connectedState({
@@ -792,6 +848,11 @@ test("runtime: Codex history opens persisted turns and resumes the exact thread"
   const harness = createHarness();
   harness.sendHostMessage(connectedState());
 
+  assert.equal(harness.element("historyPanel").classList.contains("hidden"), false);
+  assert.equal(harness.element("conversationPanel").classList.contains("hidden"), true);
+  assert.equal(harness.element("composerRoot").classList.contains("hidden"), true);
+  assert.equal(harness.latestMessage("loadThreads").projectId, "style-compass");
+
   harness.element("historyButton").dispatch("click");
   assert.equal(harness.latestMessage("loadThreads").projectId, "style-compass");
 
@@ -868,6 +929,15 @@ test("runtime: new chat sends threadMode=new and compact runtime popover is real
   harness.element("runtimeButton").dispatch("click");
   assert.equal(harness.element("runtimePanel").classList.contains("hidden"), false);
   assert.equal(harness.element("runtimeButton").getAttribute("aria-expanded"), "true");
+  assert.match(harness.element("effortChoices").textContent, /Medium/);
+  assert.match(harness.element("effortChoices").textContent, /High/);
+  assert.match(harness.element("modelChoices").textContent, /GPT-5\.6/);
+  assert.match(harness.element("speedChoices").textContent, /표준/);
+  assert.match(harness.element("speedChoices").textContent, /고속/);
+  harness.element("modelGroupButton").dispatch("click");
+  assert.equal(harness.element("modelChoices").classList.contains("hidden"), true);
+  harness.element("modelGroupButton").dispatch("click");
+  assert.equal(harness.element("modelChoices").classList.contains("hidden"), false);
   harness.document.dispatch("pointerdown", { target: harness.element("taskList") });
   assert.equal(harness.element("runtimePanel").classList.contains("hidden"), true);
 

@@ -9,6 +9,7 @@ const VIEW_TYPE = "vibex.panel";
 const LOCAL_BRIDGE_URL = "http://127.0.0.1:8787";
 const TAILSCALE_HOSTNAME = "vibex-pc";
 const REVIEW_DOCUMENT_SCHEME = "vibex-review";
+const RESPONSE_FEEDBACK_KEY = "vibex.responseFeedback";
 const execFile = promisify(childProcess.execFile);
 
 class BridgeError extends Error {
@@ -60,6 +61,7 @@ class VibexViewProvider {
     this.tailscale = { url: "http://vibex-pc:8788", ready: false, error: "Tailscale 확인 전" };
     this.reviewDocuments = new ReviewDocumentProvider();
     this.projectRoots = new Map();
+    this.responseFeedback = { ...(context.globalState.get(RESPONSE_FEEDBACK_KEY, {}) || {}) };
     context.subscriptions.push(
       this.reviewDocuments,
       vscode.workspace.registerTextDocumentContentProvider(
@@ -176,6 +178,12 @@ class VibexViewProvider {
           break;
         case "copyText":
           await this.copyText(message.text, message.requestId);
+          break;
+        case "setResponseFeedback":
+          await this.setResponseFeedback(message.responseKey, message.feedback);
+          break;
+        case "openResponse":
+          await this.openResponse(message.text, message.title);
           break;
         case "openLink":
           await this.openLink(
@@ -599,6 +607,35 @@ class VibexViewProvider {
     this.post({ type: "copyTextCompleted", requestId: requestId || null });
   }
 
+  async setResponseFeedback(responseKey, feedback) {
+    const key = String(responseKey || "").trim();
+    if (!key) throw new BridgeError("평가할 답변을 찾지 못했습니다.");
+    if (![null, "like", "dislike"].includes(feedback)) {
+      throw new BridgeError("지원하지 않는 답변 평가입니다.");
+    }
+    if (feedback) this.responseFeedback[key] = feedback;
+    else delete this.responseFeedback[key];
+    while (Object.keys(this.responseFeedback).length > 500) {
+      delete this.responseFeedback[Object.keys(this.responseFeedback)[0]];
+    }
+    await this.context.globalState.update(RESPONSE_FEEDBACK_KEY, this.responseFeedback);
+    this.post({ type: "responseFeedbackChanged", responseKey: key, feedback });
+  }
+
+  async openResponse(value, title) {
+    const text = String(value || "").trim();
+    if (!text) throw new BridgeError("열 답변 내용이 없습니다.");
+    const document = await vscode.workspace.openTextDocument({
+      content: text,
+      language: "markdown",
+    });
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      preserveFocus: false,
+    });
+    this.output.appendLine(`[response] 크게 열기: ${String(title || "VIBEX 답변").slice(0, 80)}`);
+  }
+
   async openLink(value, projectId = null) {
     const target = String(value || "").trim();
     if (!target) throw new BridgeError("열 링크가 없습니다.");
@@ -775,6 +812,7 @@ class VibexViewProvider {
         projects,
         selectedProjectId: selected || null,
         tasks: taskResponse.tasks || [],
+        responseFeedback: this.responseFeedback,
       });
     } catch (error) {
       if (generation !== this.refreshGeneration) return;
@@ -862,9 +900,6 @@ class VibexViewProvider {
   <main class="shell">
     <header class="chat-header">
       <div class="title-row">
-        <button id="backButton" class="bare-icon thread-only" type="button" title="최근 대화" aria-label="최근 대화">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
         <div>
           <h1 id="projectTitle">VIBEX</h1>
           <p id="headerSubtitle">Cross-device session</p>
@@ -921,10 +956,6 @@ class VibexViewProvider {
     <section id="errorBanner" class="error-banner hidden" role="alert"></section>
 
     <section id="historyPanel" class="history-panel hidden" aria-label="최근 대화">
-      <div class="history-heading">
-        <div><h2>최근 대화</h2><p>이 프로젝트의 Codex · VS Code · CLI 대화</p></div>
-        <button id="historyNewButton" class="secondary" type="button">새 대화</button>
-      </div>
       <div id="threadList" class="thread-list"></div>
       <button id="loadMoreThreadsButton" class="secondary wide hidden" type="button">이전 대화 더 보기</button>
     </section>
@@ -945,25 +976,45 @@ class VibexViewProvider {
     <footer class="composer">
       <textarea id="promptInput" rows="3" placeholder="후속 변경 사항을 부탁하세요"></textarea>
       <div class="composer-footer">
+        <p id="composerHint" class="composer-hint">로컬에서 작업</p>
+        <div class="send-tools">
         <div class="runtime-picker">
-          <button id="runtimeButton" class="runtime-button" type="button" aria-haspopup="dialog" aria-controls="runtimePanel" aria-expanded="false" title="모델 실행 설정">
+          <button id="runtimeButton" class="runtime-button" type="button" aria-haspopup="menu" aria-controls="runtimePanel" aria-expanded="false" title="모델 및 추론 설정">
             <span id="selectedAgentLabel" class="runtime-button-label">실행 설정</span>
-            <svg class="runtime-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <section id="runtimePanel" class="runtime-popover hidden" role="dialog" aria-label="모델 실행 설정">
-            <label class="runtime-field"><span>모델</span><select id="modelSelect"></select></label>
-            <label class="runtime-field"><span>추론</span><select id="effortSelect"></select></label>
-            <label class="runtime-field"><span>속도</span><select id="speedSelect"></select></label>
+          <section id="runtimePanel" class="runtime-popover hidden" role="menu" aria-label="모델 및 추론 설정">
+            <div class="runtime-section">
+              <div class="runtime-section-label">추론 수준</div>
+              <div id="effortChoices" class="runtime-choices"></div>
+            </div>
+            <div class="runtime-divider"></div>
+            <div class="runtime-section">
+              <button id="modelGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
+                <span id="runtimeModelValue">모델</span>
+                <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="runtime-section-label">모델</div>
+              <div id="modelChoices" class="runtime-choices"></div>
+            </div>
+            <div class="runtime-section">
+              <button id="speedGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
+                <span>속도</span>
+                <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div id="speedChoices" class="runtime-choices"></div>
+            </div>
+            <div class="runtime-native-controls" aria-hidden="true">
+              <select id="modelSelect" tabindex="-1"></select>
+              <select id="effortSelect" tabindex="-1"></select>
+              <select id="speedSelect" tabindex="-1"></select>
+            </div>
           </section>
         </div>
-        <div class="send-tools">
-          <button id="cancelButton" class="stop-button hidden" type="button" title="작업 중단" aria-label="작업 중단"><span class="stop-glyph" aria-hidden="true"></span></button>
           <button id="sendButton" class="send-button" type="button" aria-label="전송" title="전송">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 19V5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
       </div>
-      <p id="composerHint" class="composer-hint">로컬에서 작업 · Enter 전송 · Shift+Enter 줄바꿈</p>
     </footer>
   </main>
   <script nonce="${nonce}" src="${scriptUri}"></script>
