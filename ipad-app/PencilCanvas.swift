@@ -17,8 +17,8 @@ extension PKCanvasView {
 
 // 툴바에서 고르는 도구.
 enum PenKind: String, CaseIterable {
-    case pen, marker, eraser, lasso
-    var usesColor: Bool { self == .pen || self == .marker }
+    case pen, marker, arrow, eraser, lasso
+    var usesColor: Bool { self == .pen || self == .marker || self == .arrow }
 }
 
 // 지우개 방식: 획 일부만 지우기(픽셀) vs 획 통째로 지우기(오브젝트).
@@ -40,7 +40,7 @@ struct DrawTool: Equatable {
     var pkTool: PKTool {
         let color = UIColor(hex: colorHex)
         switch kind {
-        case .pen: return PKInkingTool(.pen, color: color, width: width)
+        case .pen, .arrow: return PKInkingTool(.pen, color: color, width: width)
         case .marker: return PKInkingTool(.marker, color: color, width: max(width * 3, 16))
         case .eraser:
             // width 지정 지우개와 .vector(획 전체) 지우개는 iOS 16.4+.
@@ -116,11 +116,16 @@ struct PencilCanvas: UIViewRepresentable {
             self.shapeSnapEnabled = shapeSnapEnabled
         }
 
-        /// 획을 뗀 순간. 도형 모드면 방금 그린 획을 인식해 스냅
+        /// 획을 뗀 순간. 화살표 도구면 화살표로, 도형 모드면 방금 그린 획을 인식해 스냅
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            guard shapeSnapEnabled else { return }
-            guard currentKind == .pen || currentKind == .marker else { return }
             guard let last = canvasView.drawing.strokes.last else { return }
+
+            if currentKind == .arrow {
+                snapArrow(last, in: canvasView)
+                return
+            }
+
+            guard shapeSnapEnabled, currentKind == .pen || currentKind == .marker else { return }
 
             let points = sampledPoints(of: last)
             guard let snapped = ShapeSnap.snap(points) else { return }
@@ -129,6 +134,18 @@ struct PencilCanvas: UIViewRepresentable {
             strokes.removeLast()
             strokes.append(makeStroke(outline: snapped.outline, like: last))
             canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "도형 정리")
+        }
+
+        /// 방금 드래그한 획의 시작→끝을 직선 화살표로 교체.
+        private func snapArrow(_ stroke: PKStroke, in canvasView: PKCanvasView) {
+            let points = sampledPoints(of: stroke)
+            guard let a = points.first, let b = points.last else { return }
+            guard hypot(b.x - a.x, b.y - a.y) >= 24 else { return } // 너무 짧으면 무시
+
+            var strokes = canvasView.drawing.strokes
+            strokes.removeLast()
+            strokes.append(makeStroke(outline: ShapeSnap.arrow(from: a, to: b), like: stroke))
+            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "화살표")
         }
 
         // MARK: 획 ↔ 점 변환
