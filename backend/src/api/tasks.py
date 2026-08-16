@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from src.agents.prompt import build, build_answer, build_visual
+from src.agents.prompt import build_answer, build_text, build_visual
 from src.agents.registry import (
     UnsupportedAgentError,
     build_adapter,
@@ -28,6 +28,7 @@ from src.tasks.models import (
 )
 from src.tasks.runner import run_task
 from src.tasks.store import ProjectBusyError
+from src.tasks.context import attach_shared_context
 
 logger = logging.getLogger("bridge.api.tasks")
 
@@ -111,6 +112,28 @@ def _spawn(
                 request.app.state.registry.set_agent_session(
                     project.project_id, agent_id, bound
                 )
+            if (
+                completed
+                and completed.conversation_id
+                and agent_id
+                and completed.status
+                in {TaskStatus.COMPLETED, TaskStatus.AWAITING_CONFIRMATION}
+            ):
+                settings = request.app.state.settings
+                try:
+                    request.app.state.tasks.record_agent_turn(
+                        completed.conversation_id,
+                        agent_id,
+                        completed.task_id,
+                        max_history_tokens=settings.shared_context_max_tokens,
+                        recent_history_tokens=settings.shared_context_recent_tokens,
+                        max_summary_tokens=settings.shared_context_summary_tokens,
+                    )
+                except LookupError:
+                    logger.warning(
+                        "완료한 작업의 공용 문맥 cursor를 저장하지 못했습니다: %s",
+                        completed.task_id,
+                    )
 
     _track(
         request,
@@ -347,6 +370,21 @@ async def create_task(
             conversationId=task.conversation_id,
         )
 
+    shared_context = store.shared_context(
+        projectId,
+        task.conversation_id,
+        selected_agent,
+        before_task_id=task.task_id,
+        max_tokens=settings.shared_context_max_tokens,
+        max_summary_tokens=settings.shared_context_summary_tokens,
+    )
+    if shared_context.text:
+        task = store.update(
+            task.task_id,
+            shared_context_tokens=shared_context.estimated_tokens,
+            context_through_task_id=shared_context.through_task_id,
+        )
+
     if canvas is not None and rendered is not None:
         try:
             image_paths = request.app.state.task_assets.save(
@@ -383,7 +421,10 @@ async def create_task(
             request,
             task.task_id,
             execution_project,
-            build_visual(typed_note=typedNote, test_commands=project.test_commands),
+            attach_shared_context(
+                build_visual(typed_note=typedNote, test_commands=project.test_commands),
+                shared_context,
+            ),
             session_id=task.thread_id,
             image_paths=image_paths,
             model=task.agent_model,
@@ -434,10 +475,7 @@ async def create_task(
             prompt_note += "\n\nVS Code에서 첨부한 프로젝트 파일:\n" + "\n".join(
                 f"- {reference.relative_path}" for reference in input_references
             )
-        prompt = build(
-            [prompt_note], resumed=False, test_commands=project.test_commands,
-            origin=origin,
-        )
+        prompt = attach_shared_context(build_text(prompt_note), shared_context)
         _spawn(
             request, task.task_id, execution_project, prompt,
             session_id=task.thread_id,
@@ -751,14 +789,11 @@ async def regenerate(task_id: str, request: Request) -> TaskCreated:
     except ProjectBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    prompt = build(
-        [
-            "직전 사용자 요청에 대한 답변을 처음부터 다시 생성한다. "
-            "기존 답변을 그대로 반복하지 말고 현재 프로젝트 상태를 다시 확인한다.\n\n"
-            f"원래 사용자 요청: {original.user_message}"
-        ],
-        resumed=True,
-        test_commands=run_project.test_commands,
+    prompt = build_text(
+        "직전 사용자 요청에 대한 답변을 다시 생성해줘. "
+        "필요한 경우에만 프로젝트를 확인하고, 사용자가 코드 변경을 요청하지 않았다면 "
+        "파일을 수정하거나 테스트를 실행하지 마.\n\n"
+        f"원래 사용자 요청: {original.user_message}"
     )
     _spawn(
         request,

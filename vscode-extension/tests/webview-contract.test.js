@@ -350,6 +350,15 @@ test("completed clarification turns remain in transcript order before the final 
   assert.match(history, /clarification\.answeredAt\s*\|\|\s*clarification\.answered_at/);
 });
 
+test("usage metadata shows Claude tokens as well as provider cost", () => {
+  const usage = extractFunctionBody(webviewSource, "usageLabel");
+  assert.match(usage, /usage\.totalTokens/);
+  assert.match(usage, /usage\.outputTokens/);
+  assert.match(usage, /`출력 \$\{new Intl\.NumberFormat/);
+  assert.match(usage, /usage\.costUsd/);
+  assert.match(usage, /labels\.join\(" · "\)/);
+});
+
 test("extension and WebView JavaScript pass Node syntax validation", () => {
   for (const file of [extensionPath, webviewPath]) {
     const result = spawnSync(process.execPath, ["--check", file], {

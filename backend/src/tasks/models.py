@@ -155,6 +155,16 @@ class Conversation(BaseModel):
     created_at: datetime = Field(default_factory=_now, alias="createdAt")
     updated_at: datetime = Field(default_factory=_now, alias="updatedAt")
     agent_sessions: dict[str, str] = Field(default_factory=dict, alias="agentSessions")
+    # 화면/감사용 원본 Task는 그대로 보존하고 모델 입력에만 쓰는 압축 문맥을
+    # 별도로 유지한다. 모델별 cursor로 같은 문맥의 반복 주입도 피한다.
+    context_summary: str = Field(default="", alias="contextSummary")
+    summary_through_task_id: str | None = Field(
+        default=None, alias="summaryThroughTaskId"
+    )
+    summary_token_estimate: int = Field(default=0, alias="summaryTokenEstimate")
+    agent_context_cursors: dict[str, str] = Field(
+        default_factory=dict, alias="agentContextCursors"
+    )
     archived: bool = False
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
@@ -182,6 +192,10 @@ class Task(BaseModel):
     reasoning_effort: str | None = Field(default=None, alias="reasoningEffort")
     speed_mode: str | None = Field(default=None, alias="speedMode")
     approval_mode: ApprovalMode = Field(default="default", alias="approvalMode")
+    shared_context_tokens: int = Field(default=0, alias="sharedContextTokens")
+    context_through_task_id: str | None = Field(
+        default=None, alias="contextThroughTaskId"
+    )
     regenerated_from_task_id: str | None = Field(
         default=None, alias="regeneratedFromTaskId"
     )

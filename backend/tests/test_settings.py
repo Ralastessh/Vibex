@@ -57,6 +57,13 @@ def test_token_is_optional_for_tailscale_serve():
     assert settings.device_token.strip() == ""
 
 
+def test_shared_context_limits_have_bounded_defaults():
+    settings = Settings(_env_file=None)
+    assert settings.shared_context_max_tokens == 32_768
+    assert settings.shared_context_recent_tokens == 12_288
+    assert settings.shared_context_summary_tokens == 4_096
+
+
 def test_tailscale_allowlist_is_normalized():
     settings = Settings(
         _env_file=None,

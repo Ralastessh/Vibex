@@ -28,6 +28,7 @@ async def test_one_vibex_conversation_accepts_turns_from_both_agents(api):
     assert first.status_code == 202
     assert first.json()["conversationId"] == conversation_id
     await _settle(api)
+    assert api.app.state.adapter.calls[-1][2] == "Claude에게 묻기"
 
     second = api.post(
         "/api/v1/tasks",
@@ -42,6 +43,10 @@ async def test_one_vibex_conversation_accepts_turns_from_both_agents(api):
     )
     assert second.status_code == 202
     await _settle(api)
+    codex_prompt = api.app.state.adapter.calls[-1][2]
+    assert "<vibex-shared-context>" in codex_prompt
+    assert "Claude에게 묻기" in codex_prompt
+    assert "이번에는 Codex에게 묻기" in codex_prompt
 
     detail = api.get(
         f"/api/v1/projects/demo/conversations/{conversation_id}", headers=AUTH
@@ -60,6 +65,11 @@ async def test_one_vibex_conversation_accepts_turns_from_both_agents(api):
         "claude-code",
         "codex-cli",
     }
+    assert body["conversation"]["agentContextCursors"] == {
+        "claude-code": body["tasks"][0]["taskId"],
+        "codex-cli": body["tasks"][1]["taskId"],
+    }
+    assert body["tasks"][1]["sharedContextTokens"] > 0
 
 
 def test_conversation_task_listing_is_isolated(api):

@@ -658,6 +658,26 @@ async def test_model_and_effort_are_forwarded_and_recorded(api):
     }
 
 
+async def test_plain_text_is_not_wrapped_in_a_code_modification_pipeline(api):
+    created = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "hi",
+            "origin": "vscode",
+        },
+    )
+    assert created.status_code == 202
+    await _settle(api)
+
+    prompt = api.app.state.adapter.calls[-1][2]
+    assert prompt == "hi"
+    assert "기존 프로젝트 구조" not in prompt
+    assert "관련 테스트를 실행" not in prompt
+    assert "```bridge" not in prompt
+
+
 def test_agent_rejects_an_unsupported_effort(api):
     response = api.post(
         "/api/v1/tasks",

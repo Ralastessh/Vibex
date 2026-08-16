@@ -40,6 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_event(task.task_id, task.project_id, task.status.value)
             ),
             path=settings.conversation_store_file,
+            context_recent_tokens=settings.shared_context_recent_tokens,
+            context_summary_tokens=settings.shared_context_summary_tokens,
         )
         # 테스트가 여기에 가짜를 끼워 넣으면 그것이 우선
         app.state.adapter = None

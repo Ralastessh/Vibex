@@ -22,6 +22,7 @@ from src.tasks.models import (
     TestResult,
     ThreadMode,
 )
+from src.tasks.context import SharedContext, compact_conversation, shared_context_for_agent
 
 logger = logging.getLogger("bridge.store")
 # 이전 프로세스는 종료
@@ -36,7 +37,14 @@ class ProjectBusyError(RuntimeError):
 
 
 class TaskStore:
-    def __init__(self, on_change=None, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        on_change=None,
+        path: Path | None = None,
+        *,
+        context_recent_tokens: int = 12_288,
+        context_summary_tokens: int = 4_096,
+    ) -> None:
         #: task_id -> Task. 삽입 순서가 곧 생성 순서다(축출이 이것에 기댄다).
         self._tasks: dict[str, Task] = {}
         #: conversation_id -> VIBEX 공용 대화 메타데이터.
@@ -51,6 +59,8 @@ class TaskStore:
         self._lock = threading.RLock()
         self._on_change = on_change
         self._path = path
+        self._context_recent_tokens = context_recent_tokens
+        self._context_summary_tokens = context_summary_tokens
         self._load()
 
     def close(self) -> None:
@@ -215,6 +225,76 @@ class TaskStore:
             self._save_locked()
             return _copy_conversation(conversation)
 
+    def shared_context(
+        self,
+        project_id: str,
+        conversation_id: str,
+        agent_id: str,
+        *,
+        before_task_id: str,
+        max_tokens: int,
+        max_summary_tokens: int,
+    ) -> SharedContext:
+        """선택 모델이 아직 보지 못한 공용 대화만 bounded handoff로 만든다."""
+
+        with self._lock:
+            conversation = self._conversations.get(conversation_id)
+            if conversation is None or conversation.project_id != project_id:
+                raise LookupError(conversation_id)
+            tasks = [
+                task
+                for task in self._tasks.values()
+                if task.project_id == project_id
+                and task.conversation_id == conversation_id
+            ]
+            return shared_context_for_agent(
+                conversation.model_copy(deep=True),
+                [_copy(task) for task in tasks],
+                agent_id=agent_id,
+                before_task_id=before_task_id,
+                max_tokens=max_tokens,
+                max_summary_tokens=max_summary_tokens,
+            )
+
+    def record_agent_turn(
+        self,
+        conversation_id: str,
+        agent_id: str,
+        task_id: str,
+        *,
+        max_history_tokens: int,
+        recent_history_tokens: int,
+        max_summary_tokens: int,
+    ) -> Conversation:
+        """성공한 턴을 cursor에 반영하고 필요할 때 오래된 문맥을 압축한다."""
+
+        with self._lock:
+            conversation = self._conversations.get(conversation_id)
+            if conversation is None:
+                raise LookupError(conversation_id)
+            task = self._tasks.get(task_id)
+            if task is None or task.conversation_id != conversation_id:
+                raise LookupError(task_id)
+            conversation.agent_context_cursors[agent_id] = task_id
+            tasks = [
+                value
+                for value in self._tasks.values()
+                if value.conversation_id == conversation_id
+            ]
+            compacted = compact_conversation(
+                conversation,
+                [_copy(value) for value in tasks],
+                max_history_tokens=max_history_tokens,
+                recent_history_tokens=min(recent_history_tokens, max_history_tokens),
+                max_summary_tokens=min(max_summary_tokens, max_history_tokens),
+            )
+            conversation.context_summary = compacted.summary
+            conversation.summary_through_task_id = compacted.through_task_id
+            conversation.summary_token_estimate = compacted.estimated_tokens
+            conversation.updated_at = datetime.now(timezone.utc)
+            self._save_locked()
+            return _copy_conversation(conversation)
+
     def rename_conversation(
         self, project_id: str, conversation_id: str, title: str
     ) -> Conversation:
@@ -263,6 +343,8 @@ class TaskStore:
         thread_id: str | None = None,
         turn_id: str | None = None,
         agent_model: str | None = None,
+        shared_context_tokens: int | None = None,
+        context_through_task_id: str | None = None,
         summary: str | None = None,
         agent_reply: str | None = None,
         activity_items: list[ActivityItem] | None = None,
@@ -301,6 +383,10 @@ class TaskStore:
                 task.turn_id = turn_id
             if agent_model is not None:
                 task.agent_model = agent_model
+            if shared_context_tokens is not None:
+                task.shared_context_tokens = shared_context_tokens
+            if context_through_task_id is not None:
+                task.context_through_task_id = context_through_task_id
             if summary is not None:
                 task.summary = summary
             if agent_reply is not None:
@@ -502,6 +588,30 @@ class TaskStore:
                 break
             if task.status in ACTIVE_STATUSES:
                 continue
+            conversation = (
+                self._conversations.get(task.conversation_id)
+                if task.conversation_id
+                else None
+            )
+            if conversation is not None:
+                # Task 원본 보존 한도(200개) 때문에 턴이 사라지기 직전에도 모델용
+                # 요약에는 접어 넣는다. 짧은 대화 200개가 32K에 못 미치는 경우의
+                # 조용한 문맥 유실을 막는다.
+                conversation_tasks = [
+                    value
+                    for value in self._tasks.values()
+                    if value.conversation_id == conversation.conversation_id
+                ]
+                compacted = compact_conversation(
+                    conversation,
+                    [_copy(value) for value in conversation_tasks],
+                    max_history_tokens=0,
+                    recent_history_tokens=self._context_recent_tokens,
+                    max_summary_tokens=self._context_summary_tokens,
+                )
+                conversation.context_summary = compacted.summary
+                conversation.summary_through_task_id = compacted.through_task_id
+                conversation.summary_token_estimate = compacted.estimated_tokens
             del self._tasks[task_id]
             self._review_patches.pop(task_id, None)
             self._review_trees.pop(task_id, None)
