@@ -15,9 +15,13 @@ const DOM_IDS = [
   "pairingStatus", "tailscaleURL", "setupTailscaleButton", "refreshButton",
   "settingsButton", "connectionDot", "connectionText", "projectSelect",
   "projectState", "agentSwitcher", "agentNote", "errorBanner", "emptyState",
-  "taskList", "promptInput", "sendButton", "composerHint",
+  "taskList", "promptInput", "sendButton", "composerHint", "chatInputContainer",
+  "attachButton", "attachmentTray", "agentButton", "agentPanel",
+  "agentChoices", "selectedAgentName", "agentSearchInput",
+  "approvalButton", "approvalPanel", "approvalChoices", "approvalLabel",
+  "promptAssist",
   "scrollToBottomButton", "selectedAgentLabel", "modelSelect", "effortSelect", "speedSelect",
-  "runtimeButton", "runtimePanel", "modelChoices", "effortChoices", "speedChoices",
+  "runtimeButton", "runtimePanel", "runtimeSearchInput", "modelChoices", "effortChoices", "speedChoices",
   "modelGroupButton", "speedGroupButton", "runtimeModelValue",
   "historyButton", "newThreadButton", "threadMenuButton", "threadMenu",
   "renameThreadButton", "archiveThreadButton", "historyPanel",
@@ -63,6 +67,8 @@ class FakeNode {
     this.style = {};
     this.disabled = false;
     this.value = "";
+    this.selectionStart = 0;
+    this.selectionEnd = 0;
     this.type = "";
     this.title = "";
     this.placeholder = "";
@@ -163,6 +169,11 @@ class FakeNode {
     this.focused = true;
   }
 
+  setSelectionRange(start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+  }
+
   contains(node) {
     return node === this || descendants(this).includes(node);
   }
@@ -227,6 +238,7 @@ class FakeDocument {
     for (const id of [
       "sendButton", "settingsButton", "refreshButton", "scrollToBottomButton",
       "runtimeButton",
+      "attachButton", "agentButton", "approvalButton",
       "historyButton", "newThreadButton", "threadMenuButton",
       "renameThreadButton", "archiveThreadButton", "loadMoreThreadsButton",
     ]) {
@@ -237,6 +249,9 @@ class FakeDocument {
     this.elements.get("errorBanner").classList.add("hidden");
     this.elements.get("scrollToBottomButton").classList.add("hidden");
     this.elements.get("runtimePanel").classList.add("hidden");
+    this.elements.get("agentPanel").classList.add("hidden");
+    this.elements.get("approvalPanel").classList.add("hidden");
+    this.elements.get("promptAssist").classList.add("hidden");
     this.elements.get("threadMenu").classList.add("hidden");
     this.elements.get("historyPanel").classList.add("hidden");
     this.elements.get("loadMoreThreadsButton").classList.add("hidden");
@@ -423,6 +438,16 @@ function connectedState(overrides = {}) {
       agent: "codex-cli",
     }],
     selectedProjectId: "style-compass",
+    conversations: [{
+      conversationId: "conversation-1",
+      projectId: "style-compass",
+      title: "공용 대화",
+      createdAt: "2026-08-16T00:00:00Z",
+      updatedAt: "2026-08-16T00:00:00Z",
+      agentSessions: {},
+      archived: false,
+    }],
+    selectedConversationId: "conversation-1",
     tasks: [],
     ...overrides,
   };
@@ -529,6 +554,7 @@ test("runtime: clarification free text disables once and posts its complete iden
     tasks: [{
       taskId: "task-question",
       projectId: "style-compass",
+      origin: "ipad",
       status: "awaiting_confirmation",
       createdAt: "2026-08-11T00:00:00Z",
       updatedAt: "2026-08-11T00:00:01Z",
@@ -632,6 +658,7 @@ test("runtime: clarification history stays between the original request and fina
     tasks: [{
       taskId: "task-history",
       projectId: "style-compass",
+      origin: "ipad",
       status: "completed",
       userMessage: "히어로를 수정해줘",
       createdAt: "2026-08-11T00:00:00Z",
@@ -662,6 +689,7 @@ test("runtime: clarification history stays between the original request and fina
     tasks: [{
       taskId: "task-history",
       projectId: "style-compass",
+      origin: "ipad",
       status: "completed",
       userMessage: "히어로를 수정해줘",
       clarificationTurns: [{
@@ -719,22 +747,25 @@ test("runtime: response actions copy, rate, and open the exact assistant reply",
   let actions = harness.element("taskList").querySelectorAll(".response-action");
   assert.deepEqual(
     actions.map((button) => button.getAttribute("aria-label")),
-    ["답변 복사", "좋아요", "싫어요", "답변 크게 열기"],
+    ["답변 다시 생성", "답변 복사", "좋아요", "싫어요", "답변 크게 열기"],
   );
 
-  actions[1].dispatch("click");
+  actions[2].dispatch("click");
   const liked = harness.latestMessage("setResponseFeedback");
   assert.equal(liked.responseKey, "style-compass:thread:thread-actions:turn:turn-actions");
   assert.equal(liked.feedback, "like");
   harness.sendHostMessage({ ...liked, type: "responseFeedbackChanged" });
 
   actions = harness.element("taskList").querySelectorAll(".response-action");
-  assert.equal(actions[1].getAttribute("aria-pressed"), "true");
-  actions[1].dispatch("click");
+  assert.equal(actions[2].getAttribute("aria-pressed"), "true");
+  actions[2].dispatch("click");
   assert.equal(harness.latestMessage("setResponseFeedback").feedback, null);
 
-  actions[3].dispatch("click");
+  actions[4].dispatch("click");
   assert.equal(harness.latestMessage("openResponse").text, "정확한 답변");
+
+  actions[0].dispatch("click");
+  assert.equal(harness.latestMessage("regenerateTask").taskId, "task-actions");
 });
 
 test("runtime: text fences use the Korean plain-text label", () => {
@@ -755,7 +786,7 @@ test("runtime: text fences use the Korean plain-text label", () => {
   assert.equal(codeBlock.querySelector("code").textContent, "PID 33778 — Python");
 });
 
-test("runtime: completed work duration does not grow after review or undo updates", () => {
+test("runtime: completed work hides transient reasoning and duration", () => {
   const harness = createHarness();
   harness.sendHostMessage(connectedState({
     tasks: [{
@@ -768,7 +799,7 @@ test("runtime: completed work duration does not grow after review or undo update
       updatedAt: "2026-08-11T00:03:47Z",
     }],
   }));
-  assert.match(harness.element("taskList").textContent, /26초 동안 작업함/);
+  assert.doesNotMatch(harness.element("taskList").textContent, /26초 동안 작업함/);
   assert.doesNotMatch(harness.element("taskList").textContent, /3분 47초/);
 });
 
@@ -844,85 +875,44 @@ test("runtime: WebSocket events coalesce refresh and reconnect after close", () 
   assert.equal(FakeWebSocket.instances.length, 2);
 });
 
-test("runtime: Codex history opens persisted turns and resumes the exact thread", () => {
+test("runtime: switching agents preserves the shared VIBEX transcript", () => {
   const harness = createHarness();
-  harness.sendHostMessage(connectedState());
-
-  assert.equal(harness.element("historyPanel").classList.contains("hidden"), false);
-  assert.equal(harness.element("conversationPanel").classList.contains("hidden"), true);
-  assert.equal(harness.element("composerRoot").classList.contains("hidden"), true);
-  assert.equal(harness.latestMessage("loadThreads").projectId, "style-compass");
-
-  harness.element("historyButton").dispatch("click");
-  assert.equal(harness.latestMessage("loadThreads").projectId, "style-compass");
-
-  harness.sendHostMessage({
-    type: "threadsLoaded",
-    projectId: "style-compass",
-    threads: [{
-      threadId: "thread-1",
-      sessionId: "thread-1",
-      name: "하이",
-      preview: (
-        "현재 프로젝트에서 작업한다.\n\n요청:\n1. 하이\n\n제약:\n- 관련 없는 파일은 수정하지 않는다."
-      ),
-      source: "vscode",
-      recencyAt: 1_786_410_000,
+  harness.sendHostMessage(connectedState({
+    agents: [
+      { agentId: "codex-cli", displayName: "Codex", usable: true, models: [], efforts: [], speedModes: [] },
+      { agentId: "claude-code", displayName: "Claude", usable: true, models: [], efforts: [], speedModes: [] },
+    ],
+    tasks: [{
+      taskId: "codex-turn",
+      projectId: "style-compass",
+      agentId: "codex-cli",
+      origin: "vscode",
+      status: "completed",
+      userMessage: "Codex 질문",
+      agentReply: "Codex 답변",
+      createdAt: "2026-08-16T00:00:00Z",
+      updatedAt: "2026-08-16T00:00:01Z",
     }],
-    nextCursor: null,
-  });
-  assert.equal(harness.element("threadList").children.length, 1);
-  const threadRow = harness.element("threadList").children[0];
-  assert.equal(threadRow.tagName, "BUTTON");
-  assert.equal(threadRow.getAttribute("role"), null);
-  assert.equal((threadRow.textContent.match(/하이/g) || []).length, 1);
-  assert.doesNotMatch(threadRow.textContent, /현재 프로젝트|제약|관련 없는 파일/);
-  harness.sendHostMessage(connectedState());
-  assert.equal(
-    harness.element("threadList").children[0],
-    threadRow,
-    "주기적 상태 갱신은 포커스된 대화 행을 교체하면 안 됩니다.",
-  );
-  threadRow.dispatch("click");
-  assert.equal(harness.latestMessage("openThread").threadId, "thread-1");
+  }));
+  const before = harness.element("taskList").textContent;
+  harness.element("agentButton").dispatch("click");
+  harness.element("agentChoices").children[1].dispatch("click");
+  assert.match(harness.element("taskList").textContent, /Codex 질문/);
+  assert.match(harness.element("taskList").textContent, /Codex 답변/);
+  assert.match(before, /Codex 질문/);
+  assert.match(before, /Codex 답변/);
 
-  harness.sendHostMessage({
-    type: "threadLoaded",
-    projectId: "style-compass",
-    thread: {
-      threadId: "thread-1",
-      sessionId: "thread-1",
-      name: "실제 대화",
-      preview: "하이",
-      turns: [{
-        id: "turn-1",
-        status: "completed",
-        startedAt: 1_786_410_000,
-        completedAt: 1_786_410_001,
-        items: [
-          { type: "userMessage", id: "u1", content: [{ type: "text", text: (
-            "현재 프로젝트에서 작업한다.\n\n요청:\n1. 하이\n\n제약:\n- 관련 없는 파일은 수정하지 않는다."
-          ) }] },
-          { type: "agentMessage", id: "a1", text: (
-            "안녕하세요\n\n```bridge\n{\"status\":\"completed\"}\n```"
-          ) },
-        ],
-      }],
-    },
-  });
-  assert.match(harness.element("taskList").textContent, /하이/);
-  assert.match(harness.element("taskList").textContent, /안녕하세요/);
-  assert.doesNotMatch(harness.element("taskList").textContent, /출력 규칙|```bridge|status/);
-
-  harness.element("promptInput").value = "이어서 설명해줘";
+  harness.element("promptInput").value = "Claude에게 이어서 질문";
   harness.element("promptInput").dispatch("input");
   harness.element("sendButton").dispatch("click");
   const sent = harness.latestMessage("sendTask");
-  assert.equal(sent.threadMode, "resume");
-  assert.equal(sent.threadId, "thread-1");
+  assert.equal(sent.threadMode, "auto");
+  assert.equal(sent.threadId, null);
+  assert.equal(sent.conversationId, "conversation-1");
+  assert.equal(sent.agentId, "claude-code");
 });
 
-test("runtime: new chat sends threadMode=new and compact runtime popover is real", () => {
+test("runtime: shared chat sends auto mode and compact runtime popover is real", () => {
   const harness = createHarness();
   harness.sendHostMessage(connectedState());
 
@@ -941,11 +931,150 @@ test("runtime: new chat sends threadMode=new and compact runtime popover is real
   harness.document.dispatch("pointerdown", { target: harness.element("taskList") });
   assert.equal(harness.element("runtimePanel").classList.contains("hidden"), true);
 
-  harness.element("newThreadButton").dispatch("click");
-  harness.element("promptInput").value = "새 대화 시작";
+  harness.element("promptInput").value = "공용 대화 계속";
   harness.element("promptInput").dispatch("input");
   harness.element("sendButton").dispatch("click");
   const sent = harness.latestMessage("sendTask");
-  assert.equal(sent.threadMode, "new");
+  assert.equal(sent.threadMode, "auto");
   assert.equal(sent.threadId, null);
+  assert.equal(sent.conversationId, "conversation-1");
+});
+
+test("runtime: attachment picker and agent selector are real composer actions", () => {
+  const harness = createHarness();
+  harness.sendHostMessage(connectedState({
+    agents: [
+      {
+        agentId: "codex-cli",
+        displayName: "Codex",
+        usable: true,
+        models: [{ value: "gpt-5.6", label: "GPT-5.6" }],
+        efforts: [{ value: "medium", label: "Medium" }],
+        speedModes: [{ value: "standard", label: "Standard" }],
+      },
+      {
+        agentId: "claude-code",
+        displayName: "Claude Code",
+        usable: true,
+        models: [{ value: "sonnet", label: "Sonnet" }],
+        efforts: [{ value: "medium", label: "Medium" }],
+        speedModes: [{ value: "standard", label: "Standard" }],
+      },
+    ],
+  }));
+
+  harness.element("agentButton").dispatch("click");
+  assert.equal(harness.element("agentPanel").classList.contains("hidden"), false);
+  harness.element("agentChoices").children[1].dispatch("click");
+  assert.equal(harness.latestMessage("setAgent"), undefined);
+  assert.equal(harness.element("composerRoot").classList.contains("hidden"), false);
+  assert.equal(harness.element("promptInput").disabled, false);
+
+  harness.element("attachButton").dispatch("click");
+  const picker = harness.latestMessage("pickAttachments");
+  assert.equal(picker.projectId, "style-compass");
+  harness.sendHostMessage({
+    type: "attachmentsSelected",
+    requestId: picker.requestId,
+    attachments: [{
+      path: "/workspace/style-compass/mock.png",
+      relativePath: "mock.png",
+      name: "mock.png",
+      kind: "image",
+    }],
+  });
+  assert.equal(harness.element("attachmentTray").children.length, 1);
+  assert.equal(harness.element("sendButton").disabled, false);
+  harness.element("sendButton").dispatch("click");
+  const attachmentTask = harness.latestMessage("sendTask");
+  assert.equal(attachmentTask.attachments[0].name, "mock.png");
+  assert.equal(attachmentTask.conversationId, "conversation-1");
+  assert.equal(attachmentTask.agentId, "claude-code");
+  assert.equal(harness.element("attachmentTray").children.length, 0);
+  assert.equal(attachmentTask.threadMode, "auto");
+  assert.equal(attachmentTask.threadId, null);
+});
+
+test("runtime: clarification choices are rendered only for iPad tasks", () => {
+  const harness = createHarness();
+  const question = {
+    questionId: "q1",
+    text: "어느 쪽으로 진행할까요?",
+    options: [{ optionId: "a", label: "A안" }],
+  };
+  harness.sendHostMessage(connectedState({
+    tasks: [{
+      taskId: "vscode-question",
+      projectId: "style-compass",
+      origin: "vscode",
+      status: "completed",
+      createdAt: "2026-08-15T00:00:00Z",
+      updatedAt: "2026-08-15T00:00:01Z",
+      agentReply: "어느 쪽으로 진행할까요?",
+      questions: [question],
+    }],
+  }));
+  assert.doesNotMatch(harness.element("taskList").textContent, /A안/);
+  assert.match(harness.element("taskList").textContent, /어느 쪽으로 진행할까요/);
+
+  harness.sendHostMessage(connectedState({
+    tasks: [{
+      taskId: "ipad-question",
+      projectId: "style-compass",
+      origin: "ipad",
+      status: "awaiting_confirmation",
+      createdAt: "2026-08-15T00:00:00Z",
+      updatedAt: "2026-08-15T00:00:01Z",
+      questions: [question],
+    }],
+  }));
+  assert.match(harness.element("taskList").textContent, /A안/);
+});
+
+test("runtime: approval selection is persisted and sent to the backend", () => {
+  const harness = createHarness();
+  harness.sendHostMessage(connectedState());
+
+  harness.element("approvalButton").dispatch("click");
+  assert.equal(harness.element("approvalPanel").classList.contains("hidden"), false);
+  harness.element("approvalChoices").children[2].dispatch("click");
+  assert.equal(harness.element("approvalLabel").textContent, "Autopilot(미리 보기)");
+
+  const prompt = harness.element("promptInput");
+  prompt.value = "승인 정책 확인";
+  prompt.selectionStart = prompt.value.length;
+  prompt.dispatch("input");
+  harness.element("sendButton").dispatch("click");
+  assert.equal(harness.latestMessage("sendTask").runOptions.approvalMode, "autopilot");
+});
+
+test("runtime: slash commands and project file mentions perform real actions", () => {
+  const harness = createHarness();
+  harness.sendHostMessage(connectedState());
+  const prompt = harness.element("promptInput");
+
+  prompt.value = "/fix";
+  prompt.selectionStart = prompt.value.length;
+  prompt.dispatch("input");
+  assert.equal(harness.element("promptAssist").classList.contains("hidden"), false);
+  harness.element("promptAssist").children[0].dispatch("click");
+  assert.match(prompt.value, /문제의 원인을 조사하고 수정해줘/);
+
+  prompt.value = "@App";
+  prompt.selectionStart = prompt.value.length;
+  prompt.dispatch("input");
+  const search = harness.latestMessage("searchMentions");
+  assert.equal(search.query, "App");
+  harness.sendHostMessage({
+    type: "mentionResults",
+    requestId: search.requestId,
+    files: [{
+      path: "/workspace/style-compass/src/App.jsx",
+      relativePath: "src/App.jsx",
+      name: "App.jsx",
+      kind: "file",
+    }],
+  });
+  harness.element("promptAssist").children.at(-1).dispatch("click");
+  assert.equal(harness.element("attachmentTray").children.length, 1);
 });

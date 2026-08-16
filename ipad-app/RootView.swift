@@ -6,9 +6,14 @@ extension TaskCreated: Identifiable {
     var id: String { taskId }
 }
 
+extension TaskView: Identifiable {
+    var id: String { taskId }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var projects: [ProjectView] = []
+    @Published var agents: [AgentView] = []
     @Published var loading = false
     @Published var error: String?
 
@@ -35,7 +40,12 @@ final class AppModel: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            projects = try await client.listProjects()
+            async let projectRequest = client.listProjects()
+            async let agentRequest = client.listAgents()
+            let loadedProjects = try await projectRequest
+            let loadedAgents = try await agentRequest
+            projects = loadedProjects
+            agents = loadedAgents.filter(\.usable)
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -166,7 +176,7 @@ struct ProjectListView: View {
             }
             ForEach(model.projects) { project in
                 NavigationLink {
-                    ComposeView(model: model, project: project)
+                    ConversationListView(model: model, project: project)
                 } label: {
                     HStack {
                         Circle().fill(color(project.status)).frame(width: 10, height: 10)
@@ -207,11 +217,226 @@ struct ProjectListView: View {
     }
 }
 
+// MARK: - VIBEX 공용 대화
+
+struct ConversationListView: View {
+    @ObservedObject var model: AppModel
+    let project: ProjectView
+
+    @State private var conversations: [ConversationView] = []
+    @State private var loading = false
+    @State private var errorText: String?
+
+    var body: some View {
+        List {
+            if let errorText {
+                Text(errorText).foregroundStyle(.red).font(.footnote)
+            }
+            ForEach(conversations) { conversation in
+                NavigationLink {
+                    ConversationDetailView(
+                        model: model,
+                        project: project,
+                        conversation: conversation
+                    )
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(conversation.title).font(.headline)
+                        Text(conversation.updatedAt, style: .relative)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .overlay {
+            if loading { ProgressView() }
+            else if conversations.isEmpty { Text("대화가 없습니다.").foregroundStyle(.secondary) }
+        }
+        .navigationTitle(project.displayName)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { Task { await createConversation() } } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("새 대화")
+            }
+        }
+        .task { await refresh() }
+        .refreshable { await refresh() }
+    }
+
+    private func refresh() async {
+        loading = true
+        defer { loading = false }
+        do {
+            conversations = try await model.client.conversations(projectId: project.projectId)
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func createConversation() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let created = try await model.client.createConversation(projectId: project.projectId)
+            conversations.insert(created, at: 0)
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+}
+
+struct ConversationDetailView: View {
+    @ObservedObject var model: AppModel
+    let project: ProjectView
+    let conversation: ConversationView
+
+    @State private var tasks: [TaskView] = []
+    @State private var selectedAgentId = ""
+    @State private var draft = ""
+    @State private var isSending = false
+    @State private var errorText: String?
+
+    var body: some View {
+        List {
+            if let errorText {
+                Text(errorText).foregroundStyle(.red).font(.footnote)
+            }
+            ForEach(tasks) { task in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(task.agentId == "claude-code" ? "Claude" : "Codex")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(task.createdAt, style: .time)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !task.userMessage.isEmpty {
+                        Text(task.userMessage)
+                            .padding(10)
+                            .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    if let reply = task.agentReply, !reply.isEmpty {
+                        Text(reply).textSelection(.enabled)
+                    } else if task.status.isActive {
+                        ProgressView("작업 중…")
+                    } else if let error = task.error {
+                        Text(error).foregroundStyle(.red)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+        }
+        .navigationTitle(conversation.title)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 10) {
+                HStack {
+                    Picker("모델", selection: $selectedAgentId) {
+                        ForEach(model.agents) { agent in
+                            Text(agent.displayName).tag(agent.agentId)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Spacer()
+
+                    NavigationLink {
+                        ComposeView(
+                            model: model,
+                            project: project,
+                            conversationId: conversation.conversationId,
+                            agentId: effectiveAgentId
+                        )
+                    } label: {
+                        Label("라이브 화면", systemImage: "rectangle.on.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                HStack(alignment: .bottom) {
+                    TextField("메시지 보내기", text: $draft, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...5)
+                    Button {
+                        Task { await sendText() }
+                    } label: {
+                        if isSending {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                        }
+                    }
+                    .disabled(
+                        isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    .accessibilityLabel("전송")
+                }
+            }
+            .padding()
+            .background(.regularMaterial)
+        }
+        .task {
+            if selectedAgentId.isEmpty {
+                selectedAgentId = model.agents.first?.agentId ?? project.agent
+            }
+            while !Task.isCancelled {
+                await refresh()
+                try? await Task.sleep(for: .seconds(1.5))
+            }
+        }
+        .refreshable { await refresh() }
+    }
+
+    private var effectiveAgentId: String {
+        selectedAgentId.isEmpty ? project.agent : selectedAgentId
+    }
+
+    private func refresh() async {
+        do {
+            let detail = try await model.client.conversation(
+                projectId: project.projectId,
+                conversationId: conversation.conversationId
+            )
+            tasks = detail.tasks
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func sendText() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSending else { return }
+        isSending = true
+        defer { isSending = false }
+        do {
+            _ = try await model.client.createTask(
+                projectId: project.projectId,
+                typedNote: text,
+                clientTaskId: UUID().uuidString,
+                conversationId: conversation.conversationId,
+                agentId: effectiveAgentId
+            )
+            draft = ""
+            errorText = nil
+            await refresh()
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+}
+
 // MARK: - PC 라이브 프론트엔드 → 캔버스
 
 struct ComposeView: View {
     @ObservedObject var model: AppModel
     let project: ProjectView
+    let conversationId: String
+    let agentId: String
 
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
     @State private var preview: PreviewView?
@@ -224,6 +449,8 @@ struct ComposeView: View {
                 LivePreviewEditorView(
                     model: model,
                     projectId: project.projectId,
+                    conversationId: conversationId,
+                    agentId: agentId,
                     previewURL: preview.url,
                     allowFingerDrawing: allowFingerDrawing
                 )

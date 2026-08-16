@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from src.api import agents, events, health, projects
+from src.api import agents, conversations, events, health, projects
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from src.agents.registry import available_agents
@@ -39,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             on_change=lambda task: app.state.events.publish(
                 status_event(task.task_id, task.project_id, task.status.value)
             ),
+            path=settings.conversation_store_file,
         )
         # 테스트가 여기에 가짜를 끼워 넣으면 그것이 우선
         app.state.adapter = None
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(agents.router, prefix=API_PREFIX)
     app.include_router(projects.router, prefix=API_PREFIX)
+    app.include_router(conversations.router, prefix=API_PREFIX)
     app.include_router(tasks.router, prefix=API_PREFIX)
     app.include_router(events.router, prefix=API_PREFIX)
     return app

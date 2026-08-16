@@ -148,12 +148,12 @@ test("settings opens, closes with Escape, and its buttons invoke real host work"
     /setupTailscaleButton\.addEventListener\("click"[\s\S]*type:\s*"setupTailscale"/,
   );
   assert.match(extensionSource, /case\s+"setupTailscale"[\s\S]*configureTailscale\(\)/);
-  assert.match(extensionSource, /case\s+"setAgent"[\s\S]*method:\s*"PATCH"/);
+  assert.match(extensionSource, /case\s+"setAgent"[\s\S]*에이전트는 프로젝트 설정이 아니라 다음 turn의 실행 옵션/);
 });
 
 test("model, effort, and speed are persisted per agent and sent on every turn", () => {
   const save = functionBody(webviewSource, "saveRunOptions");
-  assert.match(save, /state\.runOptions\[project\.agent\]\s*=\s*selectedRunOptions\(\)/);
+  assert.match(save, /state\.runOptions\[selectedAgentId\(\)\]\s*=\s*selectedRunOptions\(\)/);
   assert.match(save, /persistViewState\(\)/);
   const persist = functionBody(webviewSource, "persistViewState");
   assert.match(persist, /runOptions:\s*state\.runOptions/);
@@ -324,15 +324,14 @@ test("markdown file links carry the selected project and resolve from its projec
   assert.match(extensionSource, /path\.resolve\(projectRoot, requestedPath\)/);
 });
 
-test("Codex history is paged and a selected thread loads its persisted turns", () => {
-  const loadThreads = methodBody(extensionSource, "loadThreads");
-  assert.match(loadThreads, /new URLSearchParams\(\{ limit: "30" \}\)/);
-  assert.match(loadThreads, /if \(cursor\) query\.set\("cursor", cursor\)/);
-  assert.match(loadThreads, /nextCursor: page\.nextCursor/);
-  assert.match(loadThreads, /append/);
-
-  const openThread = methodBody(extensionSource, "openThread");
-  assert.match(openThread, /\/projects\/\$\{encodeURIComponent\(projectId\)\}\/threads\/\$\{encodeURIComponent\(threadId\)\}/);
-  const stored = functionBody(webviewSource, "storedThreadTasks");
-  assert.match(stored, /detail\.turns\.map\(storedTurnTask\)/);
+test("agent switching keeps one shared timeline and backend-owned session binding", () => {
+  const switcher = functionBody(webviewSource, "selectAgent");
+  assert.doesNotMatch(switcher, /state\.tasks\s*=\s*\[\]/);
+  assert.match(switcher, /state\.threadView\s*=\s*"conversation"/);
+  const selection = functionBody(webviewSource, "currentThreadSelection");
+  assert.match(selection, /mode:\s*"auto"/);
+  assert.match(selection, /threadId:\s*null/);
+  const send = functionBody(webviewSource, "sendTask");
+  assert.match(send, /conversationId:\s*selectedConversationId\(\)/);
+  assert.match(send, /agentId:\s*selectedAgentId\(\)/);
 });

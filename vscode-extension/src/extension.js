@@ -91,37 +91,76 @@ class VibexViewProvider {
         case "ready":
           await this.ensureBackend();
           await this.sendConfiguration();
-          await this.refresh(message.projectId, message.requestId);
+          await this.refresh(message.projectId, message.requestId, message.conversationId);
           await this.configureTailscale();
           break;
         case "refresh":
-          await this.refresh(message.projectId, message.requestId);
+          await this.refresh(message.projectId, message.requestId, message.conversationId);
           break;
         case "setupTailscale":
           await this.configureTailscale();
           break;
         case "setAgent":
-          await this.request(`/projects/${encodeURIComponent(message.projectId)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agent: message.agent }),
+          // 에이전트는 프로젝트 설정이 아니라 다음 turn의 실행 옵션이다.
+          break;
+        case "pickAttachments":
+          this.post({
+            type: "attachmentsSelected",
+            requestId: message.requestId || null,
+            attachments: await this.pickAttachments(message.projectId),
           });
-          await this.refresh(message.projectId);
+          break;
+        case "searchMentions":
+          this.post({
+            type: "mentionResults",
+            requestId: message.requestId || null,
+            query: String(message.query || ""),
+            files: this.findMentionCandidates(message.projectId, message.query),
+          });
           break;
         case "sendTask":
           {
-            const created = await this.createTask(
+            const prepared = this.prepareAttachments(
               message.projectId,
               message.note,
+              message.attachments,
+            );
+            const created = await this.createTask(
+              message.projectId,
+              prepared.note,
               message.runOptions,
               message.requestId,
               message.threadMode,
               message.threadId,
+              prepared.imagePaths,
+              prepared.references,
+              message.conversationId,
+              message.agentId,
             );
             this.post({
               type: "taskAccepted",
               requestId: message.requestId || null,
               taskId: created.taskId || null,
+              conversationId: created.conversationId || message.conversationId || null,
+            });
+            await this.refresh(
+              message.projectId,
+              null,
+              created.conversationId || message.conversationId || null,
+            );
+          }
+          break;
+        case "regenerateTask":
+          {
+            const created = await this.request(
+              `/tasks/${encodeURIComponent(message.taskId)}/regenerate`,
+              { method: "POST" },
+            );
+            this.post({
+              type: "regenerateAccepted",
+              requestId: message.requestId || null,
+              taskId: created.taskId || null,
+              sourceTaskId: message.taskId,
             });
           }
           await this.refresh(message.projectId);
@@ -132,6 +171,9 @@ class VibexViewProvider {
             message.cursor || null,
             Boolean(message.append),
           );
+          break;
+        case "newThread":
+          await this.createConversation(message.projectId);
           break;
         case "openThread":
           await this.openThread(message.projectId, message.threadId);
@@ -202,11 +244,22 @@ class VibexViewProvider {
           break;
       }
     } catch (error) {
-      if (message.type === "sendTask") {
+      if (message.type === "sendTask" || message.type === "regenerateTask") {
         this.post({
-          type: "taskRejected",
+          type: message.type === "regenerateTask" ? "regenerateRejected" : "taskRejected",
           requestId: message.requestId || null,
+          taskId: message.taskId || null,
           message: error instanceof Error ? error.message : String(error),
+        });
+        this.reportError(error, { post: false });
+        return;
+      }
+      if (message.type === "pickAttachments") {
+        this.post({
+          type: "attachmentsSelected",
+          requestId: message.requestId || null,
+          attachments: [],
+          error: error instanceof Error ? error.message : String(error),
         });
         this.reportError(error, { post: false });
         return;
@@ -407,6 +460,10 @@ class VibexViewProvider {
     clientTaskId = null,
     threadMode = "auto",
     threadId = null,
+    localImagePaths = [],
+    inputReferences = [],
+    conversationId = null,
+    agentId = null,
   ) {
     if (!projectId || !String(note || "").trim()) {
       throw new BridgeError("프로젝트와 요청 내용을 입력해 주세요.");
@@ -419,10 +476,19 @@ class VibexViewProvider {
       clientTaskId: clientTaskId || crypto.randomUUID(),
       threadMode: ["auto", "resume", "new"].includes(threadMode) ? threadMode : "auto",
     });
-    if (threadMode === "resume" && threadId) body.set("threadId", String(threadId));
+    if (threadId) body.set("threadId", String(threadId));
+    if (conversationId) body.set("conversationId", String(conversationId));
+    if (agentId) body.set("agentId", String(agentId));
     if (runOptions.model) body.set("model", runOptions.model);
     if (runOptions.effort) body.set("effort", runOptions.effort);
     if (runOptions.speedMode) body.set("speedMode", runOptions.speedMode);
+    if (runOptions.approvalMode) body.set("approvalMode", runOptions.approvalMode);
+    for (const imagePath of localImagePaths || []) {
+      if (imagePath) body.append("localImagePath", String(imagePath));
+    }
+    for (const reference of inputReferences || []) {
+      if (reference?.relativePath) body.append("inputReference", String(reference.relativePath));
+    }
     return this.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -430,28 +496,158 @@ class VibexViewProvider {
     });
   }
 
+  async pickAttachments(projectId) {
+    const root = this.resolveProjectRoot(projectId);
+    if (!root) throw new BridgeError("선택한 프로젝트의 경로를 찾지 못했습니다.");
+    const selected = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: true,
+      defaultUri: vscode.Uri.file(root),
+      openLabel: "Vibex에 첨부",
+      title: "프로젝트 파일 또는 이미지를 첨부하세요",
+    });
+    if (!selected?.length) return [];
+    return this.validatedAttachmentPaths(projectId, selected.map((uri) => uri.fsPath));
+  }
+
+  findMentionCandidates(projectId, query = "") {
+    const root = this.resolveProjectRoot(projectId);
+    if (!root) return [];
+    const normalizedQuery = String(query || "").trim().toLocaleLowerCase();
+    const ignored = new Set([".git", ".next", ".venv", "__pycache__", "build", "dist", "node_modules", "venv"]);
+    const queue = [root];
+    const results = [];
+    let visited = 0;
+    while (queue.length && results.length < 40 && visited < 2500) {
+      const directory = queue.shift();
+      let entries;
+      try {
+        entries = fs.readdirSync(directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      for (const entry of entries) {
+        if (visited++ >= 2500) break;
+        if (entry.name.startsWith(".") || ignored.has(entry.name) || entry.isSymbolicLink()) continue;
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          queue.push(absolutePath);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const relativePath = path.relative(root, absolutePath);
+        if (normalizedQuery && !relativePath.toLocaleLowerCase().includes(normalizedQuery)) continue;
+        const extension = path.extname(entry.name).toLowerCase();
+        results.push({
+          path: absolutePath,
+          relativePath,
+          name: entry.name,
+          kind: [".png", ".jpg", ".jpeg", ".webp"].includes(extension) ? "image" : "file",
+        });
+        if (results.length >= 40) break;
+      }
+    }
+    return results;
+  }
+
+  prepareAttachments(projectId, note, attachments) {
+    const paths = (attachments || []).map((attachment) => attachment?.path).filter(Boolean);
+    const validated = this.validatedAttachmentPaths(projectId, paths);
+    const imagePaths = validated
+      .filter((attachment) => attachment.kind === "image")
+      .map((attachment) => attachment.path);
+    return {
+      note: String(note || "").trim(),
+      imagePaths,
+      references: validated,
+    };
+  }
+
+  validatedAttachmentPaths(projectId, values) {
+    const root = this.resolveProjectRoot(projectId);
+    if (!root) throw new BridgeError("선택한 프로젝트의 경로를 찾지 못했습니다.");
+    const realRoot = fs.realpathSync(root);
+    const unique = [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))];
+    if (unique.length > 20) throw new BridgeError("한 요청에는 파일을 최대 20개까지 첨부할 수 있습니다.");
+    const attachments = unique.map((value) => {
+      let realPath;
+      try {
+        realPath = fs.realpathSync(value);
+        if (!fs.statSync(realPath).isFile()) throw new Error("not a file");
+      } catch {
+        throw new BridgeError(`첨부 파일을 찾지 못했습니다: ${path.basename(value)}`);
+      }
+      if (!isPathInside(realPath, realRoot)) {
+        throw new BridgeError("선택한 프로젝트 밖의 파일은 첨부할 수 없습니다.");
+      }
+      const extension = path.extname(realPath).toLowerCase();
+      return {
+        path: realPath,
+        relativePath: path.relative(realRoot, realPath),
+        name: path.basename(realPath),
+        kind: [".png", ".jpg", ".jpeg", ".webp"].includes(extension) ? "image" : "file",
+      };
+    });
+    if (attachments.filter((attachment) => attachment.kind === "image").length > 8) {
+      throw new BridgeError("한 요청에는 이미지를 최대 8개까지 첨부할 수 있습니다.");
+    }
+    return attachments;
+  }
+
   async loadThreads(projectId, cursor = null, append = false) {
     if (!projectId) throw new BridgeError("프로젝트를 먼저 선택해 주세요.");
-    const query = new URLSearchParams({ limit: "30" });
-    if (cursor) query.set("cursor", cursor);
     const page = await this.request(
-      `/projects/${encodeURIComponent(projectId)}/threads?${query.toString()}`,
+      `/projects/${encodeURIComponent(projectId)}/conversations`,
     );
+    const conversations = Array.isArray(page.conversations) ? page.conversations : [];
     this.post({
       type: "threadsLoaded",
       projectId,
-      threads: Array.isArray(page.threads) ? page.threads : [],
-      nextCursor: page.nextCursor || null,
+      threads: conversations.map((conversation) => ({
+        threadId: conversation.conversationId,
+        name: conversation.title,
+        preview: conversation.title,
+        updatedAt: conversation.updatedAt,
+        source: "vibex",
+      })),
+      nextCursor: null,
       append,
     });
   }
 
   async openThread(projectId, threadId) {
     if (!projectId || !threadId) throw new BridgeError("열 대화를 선택해 주세요.");
-    const thread = await this.request(
-      `/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(threadId)}`,
+    const detail = await this.request(
+      `/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(threadId)}`,
     );
-    this.post({ type: "threadLoaded", projectId, thread });
+    const conversation = detail.conversation || {};
+    this.post({
+      type: "threadLoaded",
+      projectId,
+      thread: {
+        threadId: conversation.conversationId || threadId,
+        name: conversation.title || "대화",
+        preview: conversation.title || "",
+        turns: [],
+      },
+      tasks: detail.tasks || [],
+    });
+  }
+
+  async createConversation(projectId) {
+    if (!projectId) throw new BridgeError("프로젝트를 먼저 선택해 주세요.");
+    const conversation = await this.request(
+      `/projects/${encodeURIComponent(projectId)}/conversations`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "새 대화" }),
+      },
+    );
+    await this.openThread(projectId, conversation.conversationId);
+    await this.loadThreads(projectId);
   }
 
   async renameThread(projectId, threadId, currentName = "") {
@@ -470,7 +666,7 @@ class VibexViewProvider {
     });
     if (name === undefined) return;
     await this.request(
-      `/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(threadId)}`,
+      `/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(threadId)}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -484,13 +680,13 @@ class VibexViewProvider {
   async archiveThread(projectId, threadId) {
     if (!projectId || !threadId) throw new BridgeError("보관할 대화가 없습니다.");
     const choice = await vscode.window.showWarningMessage(
-      "이 대화를 최근 목록에서 보관할까요? Codex 저장소의 대화 자체는 삭제되지 않습니다.",
+      "이 VIBEX 대화를 최근 목록에서 보관할까요?",
       { modal: true },
       "보관",
     );
     if (choice !== "보관") return;
     await this.request(
-      `/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(threadId)}/archive`,
+      `/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(threadId)}/archive`,
       { method: "POST" },
     );
     this.post({ type: "threadArchived", projectId, threadId });
@@ -782,7 +978,7 @@ class VibexViewProvider {
     await this.refresh(projectId);
   }
 
-  async refresh(selectedProjectId, requestId = null) {
+  async refresh(selectedProjectId, requestId = null, selectedConversationId = null) {
     const generation = ++this.refreshGeneration;
     try {
       await this.ensureBackend();
@@ -797,9 +993,31 @@ class VibexViewProvider {
       )
         ? selectedProjectId
         : projects[0]?.projectId;
-      const taskResponse = selected
+      let conversations = [];
+      let selectedConversation = null;
+      if (selected) {
+        const response = await this.request(
+          `/projects/${encodeURIComponent(selected)}/conversations`,
+        );
+        conversations = Array.isArray(response.conversations) ? response.conversations : [];
+        selectedConversation = conversations.find(
+          (item) => item.conversationId === selectedConversationId,
+        ) || conversations[0] || null;
+        if (!selectedConversation) {
+          selectedConversation = await this.request(
+            `/projects/${encodeURIComponent(selected)}/conversations`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title: "새 대화" }),
+            },
+          );
+          conversations = [selectedConversation];
+        }
+      }
+      const taskResponse = selected && selectedConversation
         ? await this.request(
-            `/tasks?projectId=${encodeURIComponent(selected)}&limit=50`,
+            `/tasks?projectId=${encodeURIComponent(selected)}&conversationId=${encodeURIComponent(selectedConversation.conversationId)}&limit=100`,
           )
         : { tasks: [] };
       if (generation !== this.refreshGeneration) return;
@@ -811,6 +1029,8 @@ class VibexViewProvider {
         agents: agentResponse.agents || [],
         projects,
         selectedProjectId: selected || null,
+        conversations,
+        selectedConversationId: selectedConversation?.conversationId || null,
         tasks: taskResponse.tasks || [],
         responseFeedback: this.responseFeedback,
       });
@@ -884,6 +1104,9 @@ class VibexViewProvider {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "styles.css"),
     );
+    const vscodeChatStyleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "vscode-chat-vendor.css"),
+    );
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "main.js"),
     );
@@ -894,10 +1117,11 @@ class VibexViewProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: http://127.0.0.1:8787; connect-src ws://127.0.0.1:8787; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
   <link rel="stylesheet" href="${styleUri}">
+  <link rel="stylesheet" href="${vscodeChatStyleUri}">
   <title>Vibex</title>
 </head>
 <body>
-  <main class="shell">
+  <main class="shell monaco-workbench interactive-session">
     <header class="chat-header">
       <div class="title-row">
         <div>
@@ -973,47 +1197,91 @@ class VibexViewProvider {
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
 
-    <footer class="composer">
-      <textarea id="promptInput" rows="3" placeholder="후속 변경 사항을 부탁하세요"></textarea>
-      <div class="composer-footer">
-        <p id="composerHint" class="composer-hint">로컬에서 작업</p>
-        <div class="send-tools">
-        <div class="runtime-picker">
-          <button id="runtimeButton" class="runtime-button" type="button" aria-haspopup="menu" aria-controls="runtimePanel" aria-expanded="false" title="모델 및 추론 설정">
-            <span id="selectedAgentLabel" class="runtime-button-label">실행 설정</span>
+    <footer id="composerRoot" class="composer interactive-input-part">
+      <div id="chatInputContainer" class="chat-input-container">
+        <div id="attachmentTray" class="attachment-tray chat-attached-context hidden" aria-label="첨부 파일"></div>
+        <div class="chat-editor-container">
+          <textarea id="promptInput" class="interactive-input-editor" rows="2" placeholder="다음에 빌드할 내용 설명"></textarea>
+        </div>
+        <section id="promptAssist" class="prompt-assist action-widget hidden" role="listbox" aria-label="명령 및 멘션"></section>
+        <div class="composer-footer chat-input-toolbars">
+          <div class="composer-controls chat-input-toolbar">
+            <button id="attachButton" class="composer-action action-label compact" type="button" title="컨텍스트 추가" aria-label="컨텍스트 추가">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <div class="agent-picker chat-input-picker-item">
+              <button id="agentButton" class="composer-option action-label" type="button" aria-haspopup="menu" aria-controls="agentPanel" aria-expanded="false" title="에이전트 설정">
+                <svg class="agent-symbol" viewBox="0 0 20 20" aria-hidden="true"><path d="M6.2 4.1 2.5 10l3.7 5.9h2.1L4.7 10l3.6-5.9H6.2Zm7.6 0h-2.1l3.6 5.9-3.6 5.9h2.1l3.7-5.9-3.7-5.9Z" fill="currentColor"/></svg>
+                <span id="selectedAgentName" class="chat-input-picker-label">Agent</span>
+              </button>
+              <section id="agentPanel" class="agent-popover action-widget hidden" role="menu" aria-label="에이전트 선택">
+                <input id="agentSearchInput" class="popover-search action-list-filter-input" type="search" placeholder="Search agents" aria-label="에이전트 검색" autocomplete="off" />
+                <div id="agentChoices" class="runtime-choices action-list"></div>
+              </section>
+            </div>
+            <div class="runtime-picker chat-input-picker-item">
+              <button id="runtimeButton" class="runtime-button action-label" type="button" aria-haspopup="menu" aria-controls="runtimePanel" aria-expanded="false" title="모델 선택">
+                <svg class="model-symbol" viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="13.5" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="11" cy="13.5" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                <span id="selectedAgentLabel" class="runtime-button-label chat-input-picker-label">Auto</span>
+                <svg class="mini-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <section id="runtimePanel" class="runtime-popover action-widget chat-model-picker-dropdown hidden" role="menu" aria-label="모델 및 추론 설정">
+                <input id="runtimeSearchInput" class="popover-search action-list-filter-input" type="search" placeholder="Search models" aria-label="모델 검색" autocomplete="off" />
+                <div class="runtime-section">
+                  <div class="runtime-section-label">추론 수준</div>
+                  <div id="effortChoices" class="runtime-choices action-list"></div>
+                </div>
+                <div class="runtime-divider"></div>
+                <div class="runtime-section">
+                  <button id="modelGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
+                    <span id="runtimeModelValue">모델</span>
+                    <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <div class="runtime-section-label">모델</div>
+                  <div id="modelChoices" class="runtime-choices action-list"></div>
+                </div>
+                <div class="runtime-section">
+                  <button id="speedGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
+                    <span>속도</span>
+                    <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <div id="speedChoices" class="runtime-choices action-list"></div>
+                </div>
+                <div class="runtime-native-controls" aria-hidden="true">
+                  <select id="modelSelect" tabindex="-1"></select>
+                  <select id="effortSelect" tabindex="-1"></select>
+                  <select id="speedSelect" tabindex="-1"></select>
+                </div>
+              </section>
+            </div>
+          </div>
+          <div class="send-tools chat-execute-toolbar">
+            <button id="sendButton" class="send-button action-label" type="button" aria-label="전송" title="전송">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 19V5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="chat-secondary-toolbar">
+        <div class="chat-secondary-input-toolbar">
+          <button class="secondary-chip action-label" type="button" disabled aria-label="세션 대상: 로컬">
+            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 17h6M10 14v3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span>로컬</span>
           </button>
-          <section id="runtimePanel" class="runtime-popover hidden" role="menu" aria-label="모델 및 추론 설정">
-            <div class="runtime-section">
-              <div class="runtime-section-label">추론 수준</div>
-              <div id="effortChoices" class="runtime-choices"></div>
-            </div>
+        </div>
+        <div class="approval-picker chat-input-picker-item">
+          <button id="approvalButton" class="secondary-chip action-label approval-button" type="button" aria-haspopup="menu" aria-controls="approvalPanel" aria-expanded="false" title="승인 절차 선택">
+            <svg class="shield-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 16 5v4.2c0 4-2.4 6.6-6 8.3-3.6-1.7-6-4.3-6-8.3V5l6-2.5Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="8.5" r="1" fill="currentColor"/><path d="M10 11v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span id="approvalLabel" class="chat-input-picker-label">기본 승인</span>
+            <svg class="mini-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <section id="approvalPanel" class="approval-popover action-widget hidden" role="menu" aria-label="승인 절차">
+            <div id="approvalChoices" class="approval-choices action-list"></div>
             <div class="runtime-divider"></div>
-            <div class="runtime-section">
-              <button id="modelGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
-                <span id="runtimeModelValue">모델</span>
-                <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-              <div class="runtime-section-label">모델</div>
-              <div id="modelChoices" class="runtime-choices"></div>
-            </div>
-            <div class="runtime-section">
-              <button id="speedGroupButton" class="runtime-group-button" type="button" aria-expanded="true">
-                <span>속도</span>
-                <svg class="runtime-group-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-              <div id="speedChoices" class="runtime-choices"></div>
-            </div>
-            <div class="runtime-native-controls" aria-hidden="true">
-              <select id="modelSelect" tabindex="-1"></select>
-              <select id="effortSelect" tabindex="-1"></select>
-              <select id="speedSelect" tabindex="-1"></select>
-            </div>
+            <p class="permission-note">권한에 대한 자세한 정보</p>
           </section>
         </div>
-          <button id="sendButton" class="send-button" type="button" aria-label="전송" title="전송">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 19V5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
+        <p id="composerHint" class="composer-hint">로컬에서 작업</p>
       </div>
     </footer>
   </main>

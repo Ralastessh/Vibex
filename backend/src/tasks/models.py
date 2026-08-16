@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 ThreadMode = Literal["auto", "resume", "new"]
+ApprovalMode = Literal["default", "bypass", "autopilot"]
 
 # 현재 작업 상태에 대한 정보 -> 추후 작업이 끊겨도 지속적으로 확인 가능
 class TaskStatus(str, Enum):
@@ -43,9 +44,17 @@ class ChangedFile(BaseModel):
 
 class TaskAttachment(BaseModel):
     name: str
-    kind: Literal["rendered_view", "drawing_overlay"] = Field(alias="kind")
+    kind: Literal["rendered_view", "drawing_overlay", "reference_image"] = Field(alias="kind")
     content_type: str = Field(alias="contentType")
     url: str
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+class TaskInputReference(BaseModel):
+    name: str
+    relative_path: str = Field(alias="relativePath")
+    kind: Literal["file", "image"] = "file"
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
@@ -64,6 +73,24 @@ class ActivityItem(BaseModel):
     text: str = ""
     output: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+class AgentUsage(BaseModel):
+    """공급자가 실제로 반환한 한 turn의 사용량.
+
+    Copilot의 credit 단위는 로컬 CLI에 존재하지 않는다. Codex는 App Server가
+    보내는 tokenUsage.last를, Claude는 CLI JSON의 usage/total_cost_usd를 보존해
+    UI가 존재하지 않는 값을 추정하지 않게 한다.
+    """
+
+    input_tokens: int = Field(default=0, alias="inputTokens")
+    cached_input_tokens: int = Field(default=0, alias="cachedInputTokens")
+    output_tokens: int = Field(default=0, alias="outputTokens")
+    reasoning_output_tokens: int = Field(default=0, alias="reasoningOutputTokens")
+    total_tokens: int = Field(default=0, alias="totalTokens")
+    cost_usd: float | None = Field(default=None, alias="costUsd")
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
@@ -114,9 +141,29 @@ class ClarificationTurn(BaseModel):
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
 
+class Conversation(BaseModel):
+    """VS Code와 iPad가 함께 여는 VIBEX 소유의 공용 대화.
+
+    공급자 세션은 대화의 정체성이 아니다. ``agentSessions``에는 각 로컬 CLI를
+    다시 이어 쓰기 위한 식별자만 두고, 화면에 표시할 원본 이력은 이 대화에
+    속한 Task/turn이 담당한다.
+    """
+
+    conversation_id: str = Field(alias="conversationId")
+    project_id: str = Field(alias="projectId")
+    title: str = "새 대화"
+    created_at: datetime = Field(default_factory=_now, alias="createdAt")
+    updated_at: datetime = Field(default_factory=_now, alias="updatedAt")
+    agent_sessions: dict[str, str] = Field(default_factory=dict, alias="agentSessions")
+    archived: bool = False
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
 class Task(BaseModel):
     task_id: str = Field(alias="taskId")
     project_id: str = Field(alias="projectId")
+    conversation_id: str | None = Field(default=None, alias="conversationId")
     status: TaskStatus
     created_at: datetime = Field(default_factory=_now, alias="createdAt")
     updated_at: datetime = Field(default_factory=_now, alias="updatedAt")
@@ -128,16 +175,25 @@ class Task(BaseModel):
     turn_id: str | None = Field(default=None, alias="turnId")
     # 이전 iPad/VS Code 클라이언트와 Claude adapter가 쓰는 호환 필드.
     session_id: str | None = Field(default=None, alias="sessionId")
+    agent_id: str | None = Field(default=None, alias="agentId")
     user_message: str = Field(default="", alias="userMessage")
     origin: Literal["ipad", "vscode"] = "ipad"
     agent_model: str | None = Field(default=None, alias="agentModel")
     reasoning_effort: str | None = Field(default=None, alias="reasoningEffort")
     speed_mode: str | None = Field(default=None, alias="speedMode")
+    approval_mode: ApprovalMode = Field(default="default", alias="approvalMode")
+    regenerated_from_task_id: str | None = Field(
+        default=None, alias="regeneratedFromTaskId"
+    )
     summary: str | None = None
 
     agent_reply: str | None = Field(default=None, alias="agentReply")
     activity_items: list[ActivityItem] = Field(default_factory=list, alias="activityItems")
+    usage: AgentUsage | None = None
     attachments: list[TaskAttachment] = Field(default_factory=list)
+    input_references: list[TaskInputReference] = Field(
+        default_factory=list, alias="inputReferences"
+    )
     changed_files: list[ChangedFile] = Field(default_factory=list, alias="changedFiles")
     test_results: list[TestResult] = Field(default_factory=list, alias="testResults")
     questions: list[Question] = Field(default_factory=list)

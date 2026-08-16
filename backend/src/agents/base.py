@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 from src.agents.contract import AgentReport
-from src.tasks.models import ActivityItem
+from src.tasks.models import ActivityItem, AgentUsage, ApprovalMode
 
 
 class AgentProgress(BaseModel):
@@ -13,6 +13,8 @@ class AgentProgress(BaseModel):
     activity_items: list[ActivityItem] = Field(default_factory=list)
     thread_id: str | None = Field(default=None, alias="threadId")
     turn_id: str | None = Field(default=None, alias="turnId")
+    resolved_model: str | None = Field(default=None, alias="resolvedModel")
+    usage: AgentUsage | None = None
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
@@ -25,12 +27,14 @@ class AgentRunResult(BaseModel):
     # Server의 공식 용어인 thread/turn id를 별도로 보존한다.
     thread_id: str | None = Field(default=None, alias="threadId")
     turn_id: str | None = Field(default=None, alias="turnId")
+    resolved_model: str | None = Field(default=None, alias="resolvedModel")
     report: AgentReport | None = None
     ok: bool = False
     denied_tools: list[str] = Field(default_factory=list)
     error: str | None = None
     raw_output: str = ""
     activity_items: list[ActivityItem] = Field(default_factory=list)
+    usage: AgentUsage | None = None
     cost_usd: float | None = None
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
@@ -51,6 +55,7 @@ class AgentAdapter(Protocol):
         model: str | None = None,
         effort: str | None = None,
         speed_mode: str | None = None,
+        approval_mode: ApprovalMode = "default",
         on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
         """세션을 재개해 한 작업 단위를 실행"""

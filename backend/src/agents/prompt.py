@@ -1,5 +1,5 @@
 from __future__ import annotations
-from src.agents.contract import OUTPUT_CONTRACT
+from src.agents.contract import OUTPUT_CONTRACT, output_contract
 
 CONSTRAINTS = (
     "기존 프로젝트 구조를 유지한다.",
@@ -20,6 +20,7 @@ def build(
     resumed: bool,
     context: str | None = None,
     test_commands: list[str] | None = None,
+    origin: str = "ipad",
 ) -> str:
     """작업 프롬프트를 제작
     test_commands가 비어 있으면 테스트 실행을 지시하지 않음. 실행할 수 없는 것을
@@ -47,7 +48,7 @@ def build(
 
     lines.append("제약:")
     lines += [f"- {c}" for c in constraints]
-    lines += ["", OUTPUT_CONTRACT]
+    lines += ["", output_contract(origin=origin)]
     return "\n".join(lines)
 
 

@@ -168,6 +168,20 @@ def test_project_agent_can_be_changed_and_persisted(
     assert demo["agent"] == "codex-cli"
 
 
+def test_project_agent_sessions_are_persisted_independently(settings):
+    from src.projects.registry import ProjectRegistry
+
+    registry = ProjectRegistry.load(settings.projects_file)
+    registry.set_agent_session("demo", "codex-cli", "codex-thread")
+    registry.set_agent_session("demo", "claude-code", "claude-session")
+
+    reloaded = ProjectRegistry.load(settings.projects_file).resolve("demo")
+    assert reloaded.agent_sessions == {
+        "codex-cli": "codex-thread",
+        "claude-code": "claude-session",
+    }
+
+
 def test_creating_an_existing_project_is_refused(wclient):
     wclient.post("/api/v1/projects", headers=AUTH, json={"displayName": "Dup"})
     r = wclient.post("/api/v1/projects", headers=AUTH, json={"displayName": "Dup"})

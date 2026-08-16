@@ -47,6 +47,113 @@ async def test_images_go_directly_to_the_selected_cli(client):
         assert response.content == expected
 
 
+async def test_webview_local_image_is_persisted_and_goes_to_cli(client, repo):
+    image = repo / "reference.png"
+    image.write_bytes(b"webview-image")
+    agent = FakeAgent(completed())
+    client.app.state.adapter = agent
+
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "첨부 이미지를 참고해줘",
+            "origin": "vscode",
+            "localImagePath": str(image),
+            "inputReference": "reference.png",
+        },
+    )
+
+    assert response.status_code == 202
+    await _settle(client)
+    assert agent.image_contents == [b"webview-image"]
+    persisted = agent.calls[0][4][0]
+    assert persisted.name == "reference-1.png"
+    assert persisted != image.resolve()
+
+    task = client.get(
+        f"/api/v1/tasks/{response.json()['taskId']}", headers=AUTH
+    ).json()
+    assert task["attachments"] == [
+        {
+            "name": "reference-1.png",
+            "kind": "reference_image",
+            "contentType": "image/png",
+            "url": f"/api/v1/tasks/{task['taskId']}/attachments/reference-1.png",
+        }
+    ]
+    assert task["inputReferences"] == [
+        {"name": "reference.png", "relativePath": "reference.png", "kind": "image"}
+    ]
+
+
+async def test_webview_project_file_reference_is_visible_and_prompted(client, repo):
+    source = repo / "src" / "App.jsx"
+    source.parent.mkdir(exist_ok=True)
+    source.write_text("export default function App() {}", encoding="utf-8")
+    agent = FakeAgent(completed())
+    client.app.state.adapter = agent
+
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "이 컴포넌트를 설명해줘",
+            "origin": "vscode",
+            "inputReference": "src/App.jsx",
+        },
+    )
+
+    assert response.status_code == 202
+    await _settle(client)
+    assert "- src/App.jsx" in agent.calls[0][2]
+    task = client.get(
+        f"/api/v1/tasks/{response.json()['taskId']}", headers=AUTH
+    ).json()
+    assert task["userMessage"] == "이 컴포넌트를 설명해줘"
+    assert task["inputReferences"] == [
+        {"name": "App.jsx", "relativePath": "src/App.jsx", "kind": "file"}
+    ]
+
+
+def test_ipad_cannot_submit_a_pc_local_image_path(client, repo):
+    image = repo / "reference.png"
+    image.write_bytes(b"private")
+
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "read it",
+            "origin": "ipad",
+            "localImagePath": str(image),
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_webview_cannot_attach_an_image_outside_project(client, tmp_path):
+    image = tmp_path / "outside.png"
+    image.write_bytes(b"private")
+
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "read it",
+            "origin": "vscode",
+            "localImagePath": str(image),
+        },
+    )
+
+    assert response.status_code == 403
+
+
 async def test_cli_can_ask_a_coordinate_based_question(client):
     question = Question(
         questionId="q1",
