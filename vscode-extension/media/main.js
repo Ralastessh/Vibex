@@ -1498,11 +1498,20 @@ function taskModelLabel(task) {
 
 function usageLabel(usage) {
   if (!usage) return "";
-  const cost = Number(usage.costUsd);
-  if (Number.isFinite(cost) && cost > 0) return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+  const labels = [];
   const tokens = Number(usage.totalTokens);
-  if (Number.isFinite(tokens) && tokens > 0) return `${new Intl.NumberFormat("ko-KR").format(tokens)} tokens`;
-  return "";
+  if (Number.isFinite(tokens) && tokens > 0) {
+    labels.push(`${new Intl.NumberFormat("ko-KR").format(tokens)} tokens`);
+    const output = Number(usage.outputTokens);
+    if (Number.isFinite(output) && output > 0 && output < tokens) {
+      labels.push(`출력 ${new Intl.NumberFormat("ko-KR").format(output)}`);
+    }
+  }
+  const cost = Number(usage.costUsd);
+  if (Number.isFinite(cost) && cost > 0) {
+    labels.push(`$${cost.toFixed(cost < 0.01 ? 4 : 2)}`);
+  }
+  return labels.join(" · ");
 }
 
 function appendClarificationTurns(turn, task) {

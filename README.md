@@ -107,7 +107,9 @@ OpenAI Platform API나 `OPENAI_API_KEY`는 사용하지 않습니다. Codex를 �
 선택한 턴은 로컬 Claude CLI로 실행합니다. VS Code와 iPad에 표시되는 대화의
 기준은 VIBEX 공용 `conversationId`입니다. 모델을 바꿔도 이 타임라인은 유지되며,
 각 모델의 네이티브 세션 ID는 같은 공용 대화 아래에 모델별로 따로 보관합니다.
-다른 모델의 대화 이력을 네이티브 세션에 강제로 복제하지 않습니다.
+모델을 전환하면 해당 모델이 마지막으로 본 지점 이후의 공용 턴만 전달합니다.
+오래된 턴은 원본 타임라인을 삭제하지 않고 모델 입력용 요약으로 압축하며, VIBEX가
+추가하는 이전 문맥은 기본 32K 토큰 추정치 이내로 제한합니다.
 
 같은 네이티브 thread가 VS Code나 터미널에서 이미 응답을 생성 중이면 두 실행 주체가 동시에
 쓰지 않도록 iPad 요청은 실패 처리됩니다. 현재 응답이 끝난 뒤 다시 전송하면 같은
@@ -155,6 +157,10 @@ Vibex는 이 루트에서 프로젝트를 찾고, iPad에서 생성한 프로젝
 BRIDGE_WORKSPACE_ROOT=/Users/사용자/Desktop/Vibex/test-projects
 # 선택: 이 계정만 Tailscale Serve를 통해 접근 허용
 BRIDGE_TAILSCALE_ALLOWED_USERS=user@example.com
+# 선택: 멀티 모델 공용 이전 문맥 상한과 압축 크기
+BRIDGE_SHARED_CONTEXT_MAX_TOKENS=32768
+BRIDGE_SHARED_CONTEXT_RECENT_TOKENS=12288
+BRIDGE_SHARED_CONTEXT_SUMMARY_TOKENS=4096
 ```
 
 VS Code의 VIBEX 패널을 열면 Bridge가 `127.0.0.1:8787`에서 자동 실행됩니다.
