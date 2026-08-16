@@ -536,6 +536,7 @@ async def test_task_review_and_safe_undo(api, repo):
     assert contents.status_code == 200
     assert contents.json() == {
         "path": "src/app.js",
+        "absolutePath": str(repo / "src" / "app.js"),
         "before": "original\n",
         "after": "바뀜\n",
         "beforeExists": True,

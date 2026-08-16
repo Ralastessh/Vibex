@@ -5,7 +5,7 @@ import logging
 import mimetypes
 from pathlib import Path
 from typing import Literal
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.agents.prompt import build_answer, build_text, build_visual
@@ -142,6 +142,11 @@ def _spawn(
     )
 
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
+IMAGE_SUFFIXES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
 
 async def _read_image(upload: UploadFile, limit: int, label: str) -> bytes:
     if upload.content_type not in ALLOWED_IMAGE_TYPES:
@@ -158,6 +163,34 @@ async def _read_image(upload: UploadFile, limit: int, label: str) -> bytes:
             detail=f"{label}: 이미지가 너무 큽니다({len(data) // 1024}KB).",
         )
     return data
+
+
+async def _uploaded_reference_images(
+    uploads: list[UploadFile], *, origin: str, limit: int
+) -> list[tuple[bytes, str]]:
+    """Read images pasted into the native VS Code chat composer."""
+    if not uploads:
+        return []
+    if origin != "vscode":
+        raise HTTPException(
+            status_code=403,
+            detail="업로드 참조 이미지는 VS Code에서만 사용할 수 있습니다.",
+        )
+    if len(uploads) > 8:
+        raise HTTPException(
+            status_code=413,
+            detail="한 요청에는 이미지를 최대 8개까지 첨부할 수 있습니다.",
+        )
+    result: list[tuple[bytes, str]] = []
+    for index, upload in enumerate(uploads, start=1):
+        content_type = upload.content_type or ""
+        result.append(
+            (
+                await _read_image(upload, limit, f"referenceImage[{index}]"),
+                content_type,
+            )
+        )
+    return result
 
 
 def _local_reference_images(
@@ -247,6 +280,7 @@ async def create_task(
     threadId: str | None = Form(None),
     localImagePath: list[str] = Form(default=[]),
     inputReference: list[str] = Form(default=[]),
+    referenceImage: list[UploadFile] = File(default=[]),
     canvasImage: UploadFile | None = None,
     renderedViewImage: UploadFile | None = None,
     # 이전 iPad 빌드와 한시 호환. 새 앱은 renderedViewImage를 보낸다.
@@ -296,6 +330,16 @@ async def create_task(
         origin=origin,
         limit=settings.max_image_bytes,
     )
+    uploaded_reference_images = await _uploaded_reference_images(
+        referenceImage,
+        origin=origin,
+        limit=settings.max_image_bytes,
+    )
+    if len(local_image_paths) + len(uploaded_reference_images) > 8:
+        raise HTTPException(
+            status_code=413,
+            detail="한 요청에는 이미지를 최대 8개까지 첨부할 수 있습니다.",
+        )
     input_references = _input_references(
         inputReference,
         project=project,
@@ -304,7 +348,7 @@ async def create_task(
     canvas = rendered = None
     canvas_content_type = rendered_content_type = None
     if canvasImage is not None:
-        if local_image_paths:
+        if local_image_paths or uploaded_reference_images:
             raise HTTPException(
                 status_code=400,
                 detail="드로잉 업로드와 VS Code 이미지 첨부는 한 요청에서 함께 사용할 수 없습니다.",
@@ -435,7 +479,7 @@ async def create_task(
         )
     else:
         persisted_reference_paths: list[Path] = []
-        if local_image_paths:
+        if local_image_paths or uploaded_reference_images:
             try:
                 reference_assets = [
                     (
@@ -444,6 +488,16 @@ async def create_task(
                     )
                     for index, source in enumerate(local_image_paths, start=1)
                 ]
+                reference_assets.extend(
+                    (
+                        f"reference-{index}{IMAGE_SUFFIXES[content_type]}",
+                        data,
+                    )
+                    for index, (data, content_type) in enumerate(
+                        uploaded_reference_images,
+                        start=len(reference_assets) + 1,
+                    )
+                )
                 persisted_reference_paths = request.app.state.task_assets.save(
                     task.task_id,
                     reference_assets,
@@ -552,6 +606,7 @@ class TaskReview(BaseModel):
 
 class TaskReviewFile(BaseModel):
     path: str
+    absolute_path: str | None = Field(default=None, alias="absolutePath")
     before: str | None
     after: str | None
     before_exists: bool = Field(alias="beforeExists")
@@ -637,6 +692,7 @@ def review_task_file(task_id: str, path: str, request: Request) -> TaskReviewFil
     )
     return TaskReviewFile(
         path=path,
+        absolutePath=str((project.repo_path / path).resolve()),
         before=_review_content(before_data, binary=is_binary),
         after=_review_content(after_data, binary=is_binary),
         beforeExists=before_data is not None,
