@@ -88,6 +88,48 @@ async def test_webview_local_image_is_persisted_and_goes_to_cli(client, repo):
     ]
 
 
+async def test_webview_pasted_image_is_persisted_and_goes_to_cli(client):
+    agent = FakeAgent(completed())
+    client.app.state.adapter = agent
+
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "붙여넣은 이미지를 참고해줘",
+            "origin": "vscode",
+        },
+        files={"referenceImage": ("clipboard.png", b"clipboard-image", "image/png")},
+    )
+
+    assert response.status_code == 202
+    await _settle(client)
+    assert agent.image_contents == [b"clipboard-image"]
+    persisted = agent.calls[0][4][0]
+    assert persisted.name == "reference-1.png"
+    task = client.get(
+        f"/api/v1/tasks/{response.json()['taskId']}", headers=AUTH
+    ).json()
+    assert task["attachments"][0]["kind"] == "reference_image"
+    assert task["attachments"][0]["contentType"] == "image/png"
+
+
+def test_ipad_cannot_submit_a_webview_reference_image(client):
+    response = client.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "read it",
+            "origin": "ipad",
+        },
+        files={"referenceImage": ("private.png", b"private", "image/png")},
+    )
+
+    assert response.status_code == 403
+
+
 async def test_webview_project_file_reference_is_visible_and_prompted(client, repo):
     source = repo / "src" / "App.jsx"
     source.parent.mkdir(exist_ok=True)

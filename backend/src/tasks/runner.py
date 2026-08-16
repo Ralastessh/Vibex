@@ -66,6 +66,7 @@ def _record_cancelled_changes(
     before: git.GitSnapshot,
     warnings: list[str],
     store: TaskStore,
+    uncommitted_warning: str | None = None,
 ) -> None:
     """취소 시점의 working tree를 남겨 리뷰와 명시적 undo를 가능하게 한다."""
     current = store.get(task_id)
@@ -93,6 +94,8 @@ def _record_cancelled_changes(
             f"브랜치가 {before.branch} 에서 {after.branch} 로 바뀌었습니다."
         )
     if delta.touched_anything:
+        if uncommitted_warning:
+            cancelled_warnings.insert(0, uncommitted_warning)
         cancelled_warnings.append(
             "취소되기 전에 파일 변경이 발생했습니다: "
             + ", ".join(delta.changed_paths)
@@ -185,11 +188,14 @@ async def _run(
         return
 
     warnings: list[str] = []
-    if before.has_uncommitted_changes:
-        warnings.append(
-            f"실행 전 미커밋 변경사항이 {len(before.entries)}건 있었습니다. "
-            "보존 여부를 확인하세요."
-        )
+    # 미커밋 변경사항 경고는 이 작업이 실제로 파일을 건드렸을 때만 의미가 있다.
+    # 인사말 같은 순수 대화 턴마다 경고를 붙이면 소음만 된다. delta 계산 후 판단.
+    uncommitted_warning = (
+        f"실행 전 미커밋 변경사항이 {len(before.entries)}건 있었습니다. "
+        "보존 여부를 확인하세요."
+        if before.has_uncommitted_changes
+        else None
+    )
 
     try:
         if thread_mode == "resume" and session_id is None:
@@ -266,6 +272,7 @@ async def _run(
             before=before,
             warnings=warnings,
             store=store,
+            uncommitted_warning=uncommitted_warning,
         )
         raise
 
@@ -281,6 +288,8 @@ async def _run(
         return
 
     delta = git.diff(before, after)
+    if uncommitted_warning and delta.touched_anything:
+        warnings.insert(0, uncommitted_warning)
     if delta.branch_changed:
         warnings.append(f"브랜치가 {before.branch} 에서 {after.branch} 로 바뀌었습니다.")
 
