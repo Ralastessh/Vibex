@@ -6,9 +6,11 @@ const test = require("node:test");
 
 const extensionRoot = path.resolve(__dirname, "..");
 const extensionPath = path.join(extensionRoot, "src", "extension.js");
+const packagePath = path.join(extensionRoot, "package.json");
 const webviewPath = path.join(extensionRoot, "media", "main.js");
 const extensionSource = fs.readFileSync(extensionPath, "utf8");
 const webviewSource = fs.readFileSync(webviewPath, "utf8");
+const extensionManifest = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 
 function extractWebviewHtml(source) {
   const start = source.indexOf("<!doctype html>");
@@ -164,6 +166,13 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
     "taskList",
     "promptInput",
     "sendButton",
+    "composerRoot",
+    "attachButton",
+    "attachmentTray",
+    "agentButton",
+    "agentPanel",
+    "agentChoices",
+    "selectedAgentName",
     "scrollToBottomButton",
     "composerHint",
     "selectedAgentLabel",
@@ -197,10 +206,27 @@ test("WebView HTML ids are unique and the renderer contract ids exist", () => {
   );
 });
 
-test("the first Codex view is only the conversation list", () => {
+test("Vibex remains an independent WebView rather than a native chat participant", () => {
+  assert.equal(extensionManifest.contributes.chatParticipants, undefined);
+  assert.equal(
+    extensionManifest.contributes.views.vibexSecondaryViewContainer[0].id,
+    "vibex.panel",
+  );
+  assert.ok(extensionManifest.activationEvents.includes("onView:vibex.panel"));
+  assert.match(extensionSource, /registerWebviewViewProvider\(VIEW_TYPE, provider/);
+  assert.doesNotMatch(extensionSource, /createChatParticipant|registerNativeChat|native-chat/);
+});
+
+test("Codex and Claude share one VIBEX conversation view", () => {
   assert.doesNotMatch(html, /id="backButton"|class="history-heading"/);
   assert.doesNotMatch(html, /이 프로젝트의 Codex · VS Code · CLI 대화/);
-  assert.match(webviewSource, /threadView:\s*"history"/);
+  assert.match(webviewSource, /threadView:\s*"conversation"/);
+  const selection = extractFunctionBody(webviewSource, "currentThreadSelection");
+  assert.match(selection, /mode:\s*"auto"/);
+  assert.match(selection, /threadId:\s*null/);
+  const send = extractFunctionBody(webviewSource, "sendTask");
+  assert.match(send, /conversationId:\s*selectedConversationId\(\)/);
+  assert.match(send, /agentId:\s*selectedAgentId\(\)/);
 });
 
 test("unsupported decorative controls are not rendered as dummy UI", () => {
@@ -210,7 +236,7 @@ test("unsupported decorative controls are not rendered as dummy UI", () => {
     "approval-label",
     "assistant-actions",
   ]);
-  const forbiddenLabels = /^(뒤로가기|첨부|나 대신 승인)$/;
+  const forbiddenLabels = /^(뒤로가기|나 대신 승인)$/;
   const violations = [];
 
   for (const tag of htmlTags) {
@@ -260,6 +286,7 @@ test("every visible WebView action has a postMessage and extension-host route", 
     "archiveThread",
     "setResponseFeedback",
     "openResponse",
+    "pickAttachments",
   ];
 
   assert.deepEqual(
@@ -294,6 +321,18 @@ test("every visible WebView action has a postMessage and extension-host route", 
       `${field} 실행 옵션을 backend task 요청으로 전달해야 합니다.`,
     );
   }
+});
+
+test("attachment and multi-agent composer controls are functional", () => {
+  const sendTask = extractFunctionBody(webviewSource, "sendTask");
+  assert.match(sendTask, /attachments:\s*inputReferences/);
+  assert.match(webviewSource, /type:\s*"pickAttachments"/);
+  assert.match(webviewSource, /state\.selectedAgents\[conversationAgentKey\(\)\]\s*=\s*agent\.agentId/);
+  assert.match(extensionSource, /showOpenDialog\(\{/);
+  assert.match(extensionSource, /validatedAttachmentPaths\(projectId/);
+  assert.match(extensionSource, /body\.append\("localImagePath"/);
+  assert.match(extensionSource, /body\.append\("inputReference"/);
+  assert.match(extensionSource, /body\.set\("agentId",\s*String\(agentId\)\)/);
 });
 
 test("completed clarification turns remain in transcript order before the final reply", () => {

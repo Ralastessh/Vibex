@@ -11,6 +11,13 @@ const ACTIVE_STATUSES = new Set([
 
 const persistedState = vscode.getState() || {};
 const turnNodes = new Map();
+const SLASH_COMMANDS = [
+  { value: "/clear", label: "/clear", description: "입력과 첨부 비우기", action: "clear" },
+  { value: "/explain", label: "/explain", description: "선택한 코드나 프로젝트 설명", prompt: "다음을 이해하기 쉽게 설명해줘: " },
+  { value: "/fix", label: "/fix", description: "문제를 조사하고 수정", prompt: "다음 문제의 원인을 조사하고 수정해줘: " },
+  { value: "/test", label: "/test", description: "관련 테스트 작성 또는 실행", prompt: "다음 대상의 관련 테스트를 작성하거나 실행해줘: " },
+  { value: "/review", label: "/review", description: "현재 변경사항 검토", prompt: "현재 프로젝트의 변경사항을 검토해줘. " },
+];
 
 const state = {
   configuration: { url: "http://127.0.0.1:8787", managed: true },
@@ -20,9 +27,12 @@ const state = {
   agents: [],
   projects: [],
   selectedProjectId: persistedState.selectedProjectId || null,
+  conversations: [],
+  selectedConversationIds: persistedState.selectedConversationIds || {},
+  selectedAgents: persistedState.selectedAgents || {},
   runOptions: persistedState.runOptions || {},
   threadSelections: persistedState.threadSelections || {},
-  threadView: "history",
+  threadView: "conversation",
   threads: [],
   threadsNextCursor: null,
   threadListProjectId: null,
@@ -36,6 +46,14 @@ const state = {
   questionErrors: new Map(),
   copyTargets: new Map(),
   responseFeedback: {},
+  draftAttachments: persistedState.draftAttachments || [],
+  attachmentRequestId: null,
+  regeneratePendingTaskId: null,
+  mentionRequestId: null,
+  mentionFiles: [],
+  promptAssistItems: [],
+  promptAssistIndex: 0,
+  promptAssistRange: null,
   cancelPendingTaskId: null,
   cancelPendingProjectId: null,
   refreshSequence: 0,
@@ -67,11 +85,21 @@ const dom = Object.fromEntries(
     "taskList",
     "promptInput",
     "sendButton",
+    "composerRoot",
+    "chatInputContainer",
+    "attachButton",
+    "attachmentTray",
+    "agentButton",
+    "agentPanel",
+    "agentChoices",
+    "agentSearchInput",
+    "selectedAgentName",
     "scrollToBottomButton",
     "composerHint",
     "selectedAgentLabel",
     "runtimeButton",
     "runtimePanel",
+    "runtimeSearchInput",
     "modelSelect",
     "effortSelect",
     "speedSelect",
@@ -81,6 +109,11 @@ const dom = Object.fromEntries(
     "modelGroupButton",
     "speedGroupButton",
     "runtimeModelValue",
+    "approvalButton",
+    "approvalPanel",
+    "approvalChoices",
+    "approvalLabel",
+    "promptAssist",
     "historyButton",
     "newThreadButton",
     "threadMenuButton",
@@ -107,13 +140,18 @@ dom.setupTailscaleButton.addEventListener("click", () => {
 });
 dom.projectSelect.addEventListener("change", () => {
   state.selectedProjectId = dom.projectSelect.value || null;
+  state.draftAttachments = [];
+  state.attachmentRequestId = null;
+  state.mentionFiles = [];
+  closePromptAssist();
   state.tasks = [];
+  state.conversations = [];
   state.threads = [];
   state.threadsNextCursor = null;
   state.threadListProjectId = null;
   state.threadDetail = null;
   state.threadListSignature = null;
-  state.threadView = selectedProject()?.agent === "codex-cli" ? "history" : "conversation";
+  state.threadView = "conversation";
   state.error = "";
   persistViewState();
   turnNodes.clear();
@@ -125,11 +163,42 @@ for (const control of [dom.modelSelect, dom.effortSelect, dom.speedSelect]) {
   control.addEventListener("change", saveRunOptions);
 }
 dom.sendButton.addEventListener("click", handlePrimaryAction);
+dom.attachButton.addEventListener("click", () => {
+  if (!state.selectedProjectId || state.attachmentRequestId) return;
+  state.attachmentRequestId = crypto.randomUUID();
+  dom.attachButton.disabled = true;
+  vscode.postMessage({
+    type: "pickAttachments",
+    requestId: state.attachmentRequestId,
+    projectId: state.selectedProjectId,
+  });
+});
+dom.agentButton.addEventListener("click", () => {
+  const opening = dom.agentPanel.classList.contains("hidden");
+  closeRuntime();
+  closeApprovalPanel();
+  dom.agentPanel.classList.toggle("hidden", !opening);
+  dom.agentButton.setAttribute("aria-expanded", String(opening));
+  if (opening) {
+    dom.agentSearchInput.value = "";
+    renderAgents();
+    requestAnimationFrame(() => dom.agentSearchInput.focus());
+  }
+});
+dom.agentSearchInput.addEventListener("input", renderAgents);
 dom.promptInput.addEventListener("input", () => {
   resizeComposer();
   renderComposer();
+  updatePromptAssist();
+});
+dom.promptInput.addEventListener("focus", () => {
+  dom.chatInputContainer.classList.add("focused");
+});
+dom.promptInput.addEventListener("blur", () => {
+  dom.chatInputContainer.classList.remove("focused");
 });
 dom.promptInput.addEventListener("keydown", (event) => {
+  if (handlePromptAssistKey(event)) return;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     handlePrimaryAction();
@@ -166,32 +235,47 @@ dom.threadMenuButton.addEventListener("click", () => {
   if (opening) requestAnimationFrame(() => dom.renameThreadButton.focus());
 });
 dom.renameThreadButton.addEventListener("click", () => {
-  const selection = currentThreadSelection();
-  if (!selection.threadId) return;
+  const conversationId = selectedConversationId();
+  if (!conversationId) return;
   closeThreadMenu();
   vscode.postMessage({
     type: "renameThread",
     projectId: state.selectedProjectId,
-    threadId: selection.threadId,
+    threadId: conversationId,
     name: threadTitle(),
   });
 });
 dom.archiveThreadButton.addEventListener("click", () => {
-  const selection = currentThreadSelection();
-  if (!selection.threadId) return;
+  const conversationId = selectedConversationId();
+  if (!conversationId) return;
   closeThreadMenu();
   vscode.postMessage({
     type: "archiveThread",
     projectId: state.selectedProjectId,
-    threadId: selection.threadId,
+    threadId: conversationId,
   });
 });
 dom.runtimeButton.addEventListener("click", () => {
   if (dom.runtimeButton.disabled) return;
   const opening = dom.runtimePanel.classList.contains("hidden");
+  closeAgentPanel();
+  closeApprovalPanel();
   dom.runtimePanel.classList.toggle("hidden", !opening);
   dom.runtimeButton.setAttribute("aria-expanded", String(opening));
-  if (opening) requestAnimationFrame(() => dom.effortChoices.querySelector("button")?.focus());
+  if (opening) {
+    dom.runtimeSearchInput.value = "";
+    renderRunOptions();
+    requestAnimationFrame(() => dom.runtimeSearchInput.focus());
+  }
+});
+dom.runtimeSearchInput.addEventListener("input", renderRunOptions);
+dom.approvalButton.addEventListener("click", () => {
+  const opening = dom.approvalPanel.classList.contains("hidden");
+  closeAgentPanel();
+  closeRuntime();
+  dom.approvalPanel.classList.toggle("hidden", !opening);
+  dom.approvalButton.setAttribute("aria-expanded", String(opening));
+  if (opening) requestAnimationFrame(() => dom.approvalChoices.querySelector("button")?.focus());
 });
 for (const [button, choices] of [
   [dom.modelGroupButton, dom.modelChoices],
@@ -220,6 +304,19 @@ document.addEventListener("pointerdown", (event) => {
     !dom.threadMenu.contains(event.target) &&
     !dom.threadMenuButton.contains(event.target)
   ) closeThreadMenu();
+  if (
+    !dom.agentPanel.classList.contains("hidden") &&
+    !dom.agentPanel.contains(event.target) &&
+    !dom.agentButton.contains(event.target)
+  ) closeAgentPanel();
+  if (
+    !dom.approvalPanel.classList.contains("hidden") &&
+    !dom.approvalPanel.contains(event.target) &&
+    !dom.approvalButton.contains(event.target)
+  ) closeApprovalPanel();
+  if (!dom.promptAssist.classList.contains("hidden") && !dom.composerRoot.contains(event.target)) {
+    closePromptAssist();
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -232,6 +329,15 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape" && !dom.threadMenu.classList.contains("hidden")) {
     closeThreadMenu();
     dom.threadMenuButton.focus();
+  } else if (event.key === "Escape" && !dom.agentPanel.classList.contains("hidden")) {
+    closeAgentPanel();
+    dom.agentButton.focus();
+  } else if (event.key === "Escape" && !dom.approvalPanel.classList.contains("hidden")) {
+    closeApprovalPanel();
+    dom.approvalButton.focus();
+  } else if (event.key === "Escape" && !dom.promptAssist.classList.contains("hidden")) {
+    closePromptAssist();
+    dom.promptInput.focus();
   }
 });
 
@@ -243,6 +349,24 @@ function closeSettings() {
 function closeRuntime() {
   dom.runtimePanel.classList.add("hidden");
   dom.runtimeButton.setAttribute("aria-expanded", "false");
+}
+
+function closeAgentPanel() {
+  dom.agentPanel.classList.add("hidden");
+  dom.agentButton.setAttribute("aria-expanded", "false");
+}
+
+function closeApprovalPanel() {
+  dom.approvalPanel.classList.add("hidden");
+  dom.approvalButton.setAttribute("aria-expanded", "false");
+}
+
+function closePromptAssist() {
+  state.promptAssistItems = [];
+  state.promptAssistRange = null;
+  state.promptAssistIndex = 0;
+  dom.promptAssist.classList.add("hidden");
+  dom.promptAssist.replaceChildren();
 }
 
 function closeThreadMenu() {
@@ -269,31 +393,22 @@ window.addEventListener("message", (event) => {
     state.agents = message.agents;
     state.projects = message.projects;
     state.selectedProjectId = message.selectedProjectId;
+    state.conversations = Array.isArray(message.conversations) ? message.conversations : [];
+    if (state.selectedProjectId && message.selectedConversationId) {
+      state.selectedConversationIds[state.selectedProjectId] = message.selectedConversationId;
+    }
     state.tasks = message.tasks;
     state.responseFeedback = message.responseFeedback || state.responseFeedback;
     const selected = state.projects.find(
       (project) => project.projectId === state.selectedProjectId,
     );
     if (
-      selected?.agent === "codex-cli" &&
+      selected &&
       state.threadView === "history" &&
       state.threadListProjectId !== state.selectedProjectId
     ) {
       state.threadListProjectId = state.selectedProjectId;
       vscode.postMessage({ type: "loadThreads", projectId: state.selectedProjectId });
-    }
-    const selection = currentThreadSelection();
-    if (selection.mode === "new" && selection.requestId) {
-      const materialized = state.tasks.find(
-        (task) => task.clientTaskId === selection.requestId && task.threadId,
-      );
-      if (materialized) {
-        state.threadSelections[state.selectedProjectId] = {
-          mode: "resume",
-          threadId: materialized.threadId,
-          requestId: selection.requestId,
-        };
-      }
     }
     const materializedRequests = new Set(
       state.tasks.map((task) => task.clientTaskId).filter(Boolean),
@@ -316,11 +431,54 @@ window.addEventListener("message", (event) => {
     if (message.requestId === state.pendingRequestId) {
       state.pendingRequestId = null;
     }
+    if (state.selectedProjectId && message.conversationId) {
+      state.selectedConversationIds[state.selectedProjectId] = message.conversationId;
+      persistViewState();
+    }
     const optimistic = state.optimisticTurns.find((turn) => turn.requestId === message.requestId);
     if (optimistic) {
       optimistic.accepted = true;
       optimistic.taskId = message.taskId || null;
     }
+  } else if (message.type === "attachmentsSelected") {
+    if (message.requestId !== state.attachmentRequestId) return;
+    state.attachmentRequestId = null;
+    const known = new Set(state.draftAttachments.map((attachment) => attachment.path));
+    for (const attachment of message.attachments || []) {
+      if (attachment?.path && !known.has(attachment.path)) {
+        state.draftAttachments.push(attachment);
+        known.add(attachment.path);
+      }
+    }
+    if (message.error) state.error = message.error;
+    persistViewState();
+  } else if (message.type === "mentionResults") {
+    if (message.requestId !== state.mentionRequestId) return;
+    state.mentionFiles = Array.isArray(message.files) ? message.files : [];
+    const range = promptTokenAtCursor();
+    if (!range?.token.startsWith("@")) return;
+    state.promptAssistItems = [
+      ...state.promptAssistItems.filter((item) => item.type !== "file"),
+      ...state.mentionFiles.map((file) => ({
+        type: "file",
+        value: `@${file.relativePath}`,
+        label: file.name,
+        description: file.relativePath,
+        file,
+      })),
+    ];
+    renderPromptAssist();
+  } else if (message.type === "regenerateAccepted") {
+    if (state.regeneratePendingTaskId === message.sourceTaskId) {
+      state.regeneratePendingTaskId = null;
+      invalidateTurn(message.sourceTaskId);
+    }
+  } else if (message.type === "regenerateRejected") {
+    if (state.regeneratePendingTaskId === message.taskId) {
+      state.regeneratePendingTaskId = null;
+      invalidateTurn(message.taskId);
+    }
+    state.error = message.message || "답변을 다시 생성하지 못했습니다.";
   } else if (message.type === "threadsLoaded") {
     if (message.projectId !== state.selectedProjectId) return;
     state.threadListProjectId = message.projectId;
@@ -335,17 +493,14 @@ window.addEventListener("message", (event) => {
   } else if (message.type === "threadLoaded") {
     if (message.projectId !== state.selectedProjectId || !message.thread?.threadId) return;
     state.threadDetail = message.thread;
-    state.threadSelections[state.selectedProjectId] = {
-      mode: "resume",
-      threadId: message.thread.threadId,
-      requestId: null,
-    };
+    state.tasks = Array.isArray(message.tasks) ? message.tasks : [];
+    state.selectedConversationIds[state.selectedProjectId] = message.thread.threadId;
     state.threadView = "conversation";
     closeThreadMenu();
     persistViewState();
   } else if (message.type === "threadArchived") {
     if (message.projectId !== state.selectedProjectId) return;
-    if (currentThreadSelection().threadId === message.threadId) startNewThread();
+    if (selectedConversationId() === message.threadId) startNewThread();
   } else if (message.type === "taskRejected") {
     if (message.requestId === state.pendingRequestId) state.pendingRequestId = null;
     const rejected = state.optimisticTurns.find((turn) => turn.requestId === message.requestId);
@@ -355,6 +510,10 @@ window.addEventListener("message", (event) => {
     if (rejected && !dom.promptInput.value.trim()) {
       dom.promptInput.value = rejected.note;
       resizeComposer();
+    }
+    if (rejected && !state.draftAttachments.length) {
+      state.draftAttachments = rejected.inputReferences || [];
+      persistViewState();
     }
     state.error = message.message || "요청을 전송하지 못했습니다.";
   } else if (message.type === "copyTextCompleted") {
@@ -406,11 +565,14 @@ function refresh() {
     type: "refresh",
     requestId,
     projectId: state.selectedProjectId,
+    conversationId: selectedConversationId(),
   });
 }
 
 function sendTask() {
-  const note = dom.promptInput.value.trim();
+  const typedNote = dom.promptInput.value.trim();
+  const inputReferences = state.draftAttachments.map((attachment) => ({ ...attachment }));
+  const note = typedNote || (inputReferences.length ? "첨부한 자료를 검토해줘." : "");
   if (
     !note ||
     !state.selectedProjectId ||
@@ -428,11 +590,15 @@ function sendTask() {
     requestId: state.pendingRequestId,
     projectId: state.selectedProjectId,
     note,
+    inputReferences,
     createdAt: new Date().toISOString(),
     accepted: false,
     taskId: null,
   });
   dom.promptInput.value = "";
+  state.draftAttachments = [];
+  closePromptAssist();
+  persistViewState();
   resizeComposer();
   vscode.postMessage({
     type: "sendTask",
@@ -442,9 +608,179 @@ function sendTask() {
     runOptions: selectedRunOptions(),
     threadMode: threadSelection.mode,
     threadId: threadSelection.threadId || null,
+    attachments: inputReferences,
+    conversationId: selectedConversationId(),
+    agentId: selectedAgentId(),
   });
   render();
   requestAnimationFrame(() => scrollToDocumentBottom("smooth"));
+}
+
+function regenerateTask(task) {
+  if (!task?.taskId || state.regeneratePendingTaskId || hasActiveTask()) return;
+  state.regeneratePendingTaskId = task.taskId;
+  invalidateTurn(task.taskId);
+  vscode.postMessage({
+    type: "regenerateTask",
+    requestId: crypto.randomUUID(),
+    projectId: task.projectId || state.selectedProjectId,
+    taskId: task.taskId,
+  });
+  render();
+}
+
+function promptTokenAtCursor() {
+  const cursor = dom.promptInput.selectionStart ?? dom.promptInput.value.length;
+  const before = dom.promptInput.value.slice(0, cursor);
+  const match = before.match(/(^|\s)([/@][^\s]*)$/u);
+  if (!match) return null;
+  const token = match[2];
+  return { token, start: cursor - token.length, end: cursor };
+}
+
+function updatePromptAssist() {
+  const range = promptTokenAtCursor();
+  if (!range) {
+    closePromptAssist();
+    return;
+  }
+  state.promptAssistRange = range;
+  state.promptAssistIndex = 0;
+  if (range.token.startsWith("/")) {
+    const query = range.token.toLocaleLowerCase();
+    state.promptAssistItems = SLASH_COMMANDS.filter((command) => (
+      command.value.startsWith(query)
+    )).map((command) => ({ type: "command", ...command }));
+    renderPromptAssist();
+    return;
+  }
+
+  const query = range.token.slice(1);
+  const agentItems = state.agents
+    .filter((agent) => ["codex-cli", "claude-code"].includes(agent.agentId))
+    .filter((agent) => !query || agent.displayName.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+    .map((agent) => ({
+      type: "agent",
+      value: `@${shortAgentName(agent)}`,
+      label: shortAgentName(agent),
+      description: `${agent.displayName} · 로컬 CLI`,
+      agent,
+    }));
+  state.promptAssistItems = [
+    ...agentItems,
+    ...state.mentionFiles.map((file) => ({
+      type: "file",
+      value: `@${file.relativePath}`,
+      label: file.name,
+      description: file.relativePath,
+      file,
+    })),
+  ];
+  renderPromptAssist();
+  state.mentionRequestId = crypto.randomUUID();
+  vscode.postMessage({
+    type: "searchMentions",
+    requestId: state.mentionRequestId,
+    projectId: state.selectedProjectId,
+    query,
+  });
+}
+
+function renderPromptAssist() {
+  const range = promptTokenAtCursor();
+  if (!range || !state.promptAssistItems.length) {
+    dom.promptAssist.classList.add("hidden");
+    dom.promptAssist.replaceChildren();
+    return;
+  }
+  state.promptAssistRange = range;
+  if (state.promptAssistIndex >= state.promptAssistItems.length) state.promptAssistIndex = 0;
+  dom.promptAssist.replaceChildren(...state.promptAssistItems.map((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `prompt-assist-item${index === state.promptAssistIndex ? " active" : ""}`;
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(index === state.promptAssistIndex));
+    button.append(
+      textElement("span", item.type === "file" ? "#" : item.type === "agent" ? "@" : "/", "assist-kind"),
+      textElement("span", item.label, "assist-label"),
+      textElement("span", item.description, "assist-description"),
+    );
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+    button.addEventListener("click", () => selectPromptAssist(index));
+    return button;
+  }));
+  dom.promptAssist.classList.remove("hidden");
+}
+
+function handlePromptAssistKey(event) {
+  if (dom.promptAssist.classList.contains("hidden") || !state.promptAssistItems.length) return false;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    state.promptAssistIndex = (
+      state.promptAssistIndex + delta + state.promptAssistItems.length
+    ) % state.promptAssistItems.length;
+    renderPromptAssist();
+    return true;
+  }
+  if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    selectPromptAssist(state.promptAssistIndex);
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closePromptAssist();
+    return true;
+  }
+  return false;
+}
+
+function replacePromptAssistToken(replacement = "") {
+  const range = state.promptAssistRange || promptTokenAtCursor();
+  if (!range) return;
+  const value = dom.promptInput.value;
+  dom.promptInput.value = `${value.slice(0, range.start)}${replacement}${value.slice(range.end)}`;
+  const cursor = range.start + replacement.length;
+  dom.promptInput.setSelectionRange(cursor, cursor);
+  resizeComposer();
+}
+
+function selectPromptAssist(index) {
+  const item = state.promptAssistItems[index];
+  if (!item) return;
+  if (item.type === "command") {
+    if (item.action === "new") {
+      replacePromptAssistToken("");
+      startNewThread();
+    } else if (item.action === "history") {
+      replacePromptAssistToken("");
+      openHistory();
+    } else if (item.action === "clear") {
+      dom.promptInput.value = "";
+      state.draftAttachments = [];
+      persistViewState();
+      resizeComposer();
+    } else {
+      replacePromptAssistToken(item.prompt || "");
+    }
+  } else if (item.type === "agent") {
+    replacePromptAssistToken("");
+    const project = selectedProject();
+    if (project && item.agent?.usable) {
+      selectAgent(project, item.agent);
+    }
+  } else if (item.type === "file") {
+    replacePromptAssistToken("");
+    if (!state.draftAttachments.some((attachment) => attachment.path === item.file.path)) {
+      state.draftAttachments.push(item.file);
+      persistViewState();
+    }
+  }
+  closePromptAssist();
+  renderComposer();
+  dom.promptInput.focus();
 }
 
 function hasActiveTask() {
@@ -508,7 +844,7 @@ function renderProjects() {
   const project = selectedProject();
   dom.projectState.textContent = project?.status || "offline";
   dom.projectTitle.textContent = project?.displayName || "VIBEX";
-  const agent = state.agents.find((candidate) => candidate.agentId === project?.agent);
+  const agent = state.agents.find((candidate) => candidate.agentId === selectedAgentId());
   dom.headerSubtitle.textContent = project
     ? `${agent?.displayName || "Local agent"} · ${project.status === "busy" ? "작업 중" : "로컬에서 작업"}`
     : "iPad · VS Code";
@@ -516,6 +852,7 @@ function renderProjects() {
 
 function renderAgents() {
   const project = selectedProject();
+  const activeAgentId = selectedAgentId();
   const visibleAgents = state.agents.filter((agent) =>
     ["codex-cli", "claude-code"].includes(agent.agentId),
   );
@@ -523,7 +860,7 @@ function renderAgents() {
     ...visibleAgents.map((agent) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `agent-button${project?.agent === agent.agentId ? " active" : ""}`;
+      button.className = `agent-button${activeAgentId === agent.agentId ? " active" : ""}`;
       button.disabled = !project || !agent.usable || project.status === "busy";
       button.append(
         document.createTextNode(agent.displayName),
@@ -531,24 +868,78 @@ function renderAgents() {
       );
       button.addEventListener("click", () => {
         if (!project) return;
-        vscode.postMessage({
-          type: "setAgent",
-          projectId: project.projectId,
-          agent: agent.agentId,
-        });
+        selectAgent(project, agent);
       });
       return button;
     }),
   );
-  const selectedAgent = visibleAgents.find((agent) => agent.agentId === project?.agent);
+  const selectedAgent = visibleAgents.find((agent) => agent.agentId === activeAgentId);
+  dom.selectedAgentName.textContent = "Agent";
+  dom.agentButton.title = selectedAgent
+    ? `에이전트 설정 - ${selectedAgent.displayName}`
+    : "에이전트 설정";
+  const query = dom.agentSearchInput.value.trim().toLocaleLowerCase();
+  const filteredAgents = visibleAgents.filter((agent) => (
+    !query || `${agent.displayName} ${agent.note}`.toLocaleLowerCase().includes(query)
+  ));
+  dom.agentChoices.replaceChildren(
+    ...filteredAgents.map((agent) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "runtime-choice agent-choice";
+      button.setAttribute("role", "menuitemradio");
+      button.setAttribute("aria-checked", String(activeAgentId === agent.agentId));
+      button.disabled = !project || !agent.usable || project.status === "busy";
+      const copy = document.createElement("span");
+      copy.className = "runtime-choice-copy";
+      copy.append(
+        textElement("span", agent.displayName, "runtime-choice-title"),
+        textElement("span", agent.usable ? "로컬 CLI · 프로젝트 세션" : agent.note || "사용 불가", "runtime-choice-description"),
+      );
+      button.append(textElement("span", "", `agent-dot ${agent.agentId}`), copy);
+      if (activeAgentId === agent.agentId) button.append(textElement("span", "✓", "runtime-check"));
+      button.addEventListener("click", () => {
+        if (!project || button.disabled) return;
+        selectAgent(project, agent);
+      });
+      return button;
+    }),
+  );
+  dom.agentButton.disabled = !project || !visibleAgents.some((agent) => agent.usable);
+  if (dom.agentButton.disabled) closeAgentPanel();
   dom.agentNote.textContent = project
     ? selectedAgent?.note || "프로젝트에서 사용할 로컬 에이전트를 선택하세요."
     : "";
 }
 
+function selectAgent(project, agent) {
+  if (!project || !agent?.usable || selectedAgentId() === agent.agentId) {
+    closeAgentPanel();
+    return;
+  }
+  closeAgentPanel();
+  closeRuntime();
+  closeApprovalPanel();
+
+  // 대화 타임라인은 VIBEX 프로젝트 소유다. 에이전트 선택은 다음 턴의 실행기만
+  // 바꾸며 현재 메시지 목록을 교체하거나 지우지 않는다.
+  state.selectedAgents[conversationAgentKey()] = agent.agentId;
+  state.threadView = "conversation";
+  state.error = "";
+  persistViewState();
+  render();
+  requestAnimationFrame(() => dom.promptInput.focus());
+}
+
+function shortAgentName(agent) {
+  if (agent?.agentId === "codex-cli") return "Codex";
+  if (agent?.agentId === "claude-code") return "Claude";
+  return agent?.displayName || "";
+}
+
 function renderRunOptions() {
   const project = selectedProject();
-  const agent = state.agents.find((candidate) => candidate.agentId === project?.agent);
+  const agent = state.agents.find((candidate) => candidate.agentId === selectedAgentId());
   const saved = agent ? state.runOptions[agent.agentId] || {} : {};
   fillSelect(dom.modelSelect, agent?.models || [], saved.model);
   fillSelect(dom.effortSelect, agent?.efforts || [], saved.effort);
@@ -556,22 +947,80 @@ function renderRunOptions() {
 
   const modelLabel = selectedOptionLabel(dom.modelSelect);
   dom.selectedAgentLabel.textContent = modelLabel && !modelLabel.startsWith("기본")
-    ? modelLabel.replace(/^GPT-/, "")
-    : agent?.displayName || "Agent";
+    ? modelLabel
+    : "Auto";
   dom.runtimeModelValue.textContent = modelLabel && !modelLabel.startsWith("기본")
     ? modelLabel
     : agent?.displayName || "모델";
   renderRuntimeChoices(dom.effortChoices, dom.effortSelect, "effort");
   renderRuntimeChoices(dom.modelChoices, dom.modelSelect, "model");
   renderRuntimeChoices(dom.speedChoices, dom.speedSelect, "speed");
+  renderApprovalChoices(saved.approvalMode || "default");
   dom.runtimeButton.disabled = !project || !agent;
+  dom.approvalButton.disabled = !project || !agent;
   if (dom.runtimeButton.disabled) closeRuntime();
+  if (dom.approvalButton.disabled) closeApprovalPanel();
+}
+
+function renderApprovalChoices(selected) {
+  const choices = [
+    {
+      value: "default",
+      title: "기본 승인",
+      description: "안전한 작업공간 안에서 요청을 자동 검토합니다.",
+      icon: "shield",
+    },
+    {
+      value: "bypass",
+      title: "승인 건너뛰기",
+      description: "모든 도구 호출을 자동 승인합니다.",
+      icon: "warning",
+    },
+    {
+      value: "autopilot",
+      title: "Autopilot(미리 보기)",
+      description: "샌드박스 안에서 완료될 때까지 자율적으로 진행합니다.",
+      icon: "rocket",
+    },
+  ];
+  const active = choices.find((choice) => choice.value === selected) || choices[0];
+  dom.approvalLabel.textContent = active.title;
+  dom.approvalChoices.replaceChildren(...choices.map((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "approval-choice";
+    button.setAttribute("role", "menuitemradio");
+    button.setAttribute("aria-checked", String(choice.value === active.value));
+    const copy = document.createElement("span");
+    copy.className = "runtime-choice-copy";
+    copy.append(
+      textElement("span", choice.title, "runtime-choice-title"),
+      textElement("span", choice.description, "runtime-choice-description"),
+    );
+    button.append(icon(choice.icon), copy);
+    if (choice.value === active.value) button.append(textElement("span", "✓", "runtime-check"));
+    button.addEventListener("click", () => {
+      const project = selectedProject();
+      if (!project) return;
+      const agentId = selectedAgentId();
+      state.runOptions[agentId] = {
+        ...(state.runOptions[agentId] || {}),
+        approvalMode: choice.value,
+      };
+      persistViewState();
+      closeApprovalPanel();
+      renderRunOptions();
+    });
+    return button;
+  }));
 }
 
 function renderRuntimeChoices(container, select, kind) {
   const selected = select.value || "";
+  const query = dom.runtimeSearchInput?.value.trim().toLocaleLowerCase() || "";
   const visibleOptions = [...select.children].filter((option) => (
-    kind === "speed" || option.value !== ""
+    (kind === "speed" || option.value !== "") &&
+    (!query || kind !== "model" || `${option.textContent} ${option.value}`.toLocaleLowerCase().includes(query))
   ));
   container.replaceChildren(...visibleOptions.map((option) => {
     const button = document.createElement("button");
@@ -624,16 +1073,19 @@ function fillSelect(select, options, selectedValue) {
 function saveRunOptions() {
   const project = selectedProject();
   if (!project) return;
-  state.runOptions[project.agent] = selectedRunOptions();
+  state.runOptions[selectedAgentId()] = selectedRunOptions();
   persistViewState();
   renderRunOptions();
 }
 
 function selectedRunOptions() {
+  const project = selectedProject();
+  const saved = project ? state.runOptions[selectedAgentId()] || {} : {};
   return {
     model: dom.modelSelect.value || "",
     effort: dom.effortSelect.value || "",
     speedMode: dom.speedSelect.value || "",
+    approvalMode: saved.approvalMode || "default",
   };
 }
 
@@ -644,26 +1096,23 @@ function selectedOptionLabel(select) {
 function persistViewState() {
   vscode.setState({
     selectedProjectId: state.selectedProjectId,
+    selectedConversationIds: state.selectedConversationIds,
+    selectedAgents: state.selectedAgents,
     runOptions: state.runOptions,
     threadSelections: state.threadSelections,
+    draftAttachments: state.draftAttachments,
   });
 }
 
 function codexThreadsAvailable() {
-  return selectedProject()?.agent === "codex-cli";
+  return Boolean(state.selectedProjectId);
 }
 
 function currentThreadSelection() {
-  const projectId = state.selectedProjectId;
-  const saved = projectId ? state.threadSelections[projectId] : null;
-  if (!saved || !["auto", "resume", "new"].includes(saved.mode)) {
-    return { mode: "auto", threadId: null, requestId: null };
-  }
-  return {
-    mode: saved.mode,
-    threadId: saved.threadId || null,
-    requestId: saved.requestId || null,
-  };
+  // VIBEX conversationId is the canonical cross-model chat identity. It is not
+  // a Codex/Claude native thread id; the backend resolves each agent's private
+  // session binding inside that conversation.
+  return { mode: "auto", threadId: null, requestId: null };
 }
 
 function openHistory() {
@@ -679,44 +1128,29 @@ function openHistory() {
 
 function startNewThread() {
   if (!codexThreadsAvailable() || !state.selectedProjectId) return;
-  state.threadSelections[state.selectedProjectId] = {
-    mode: "new",
-    threadId: null,
-    requestId: null,
-  };
-  state.threadDetail = null;
-  state.threadView = "conversation";
-  state.error = "";
-  turnNodes.clear();
-  dom.taskList.replaceChildren();
-  persistViewState();
-  render();
-  requestAnimationFrame(() => dom.promptInput.focus());
+  vscode.postMessage({ type: "newThread", projectId: state.selectedProjectId });
 }
 
 function threadTitle() {
-  const selection = currentThreadSelection();
-  if (selection.mode === "new") return "새 대화";
-  if (selection.mode !== "resume" || !selection.threadId) {
-    return selectedProject()?.displayName || "VIBEX";
-  }
-  const detail = state.threadDetail?.threadId === selection.threadId
+  const conversationId = selectedConversationId();
+  if (!conversationId) return "새 대화";
+  const detail = state.threadDetail?.threadId === conversationId
     ? state.threadDetail
     : null;
-  const summary = state.threads.find((thread) => thread.threadId === selection.threadId);
-  const liveTask = state.tasks.findLast((task) => (
-    task.threadId === selection.threadId || task.sessionId === selection.threadId
-  ));
-  return detail?.name || visibleStoredUserText(detail?.preview || "") ||
+  const summary = state.threads.find((thread) => thread.threadId === conversationId);
+  const conversation = state.conversations.find(
+    (item) => item.conversationId === conversationId,
+  );
+  const liveTask = state.tasks.findLast((task) => task.conversationId === conversationId);
+  return conversation?.title || detail?.name || visibleStoredUserText(detail?.preview || "") ||
     summary?.name || visibleStoredUserText(summary?.preview || "") ||
     liveTask?.userMessage || "대화";
 }
 
 function renderThreadChrome() {
   const codex = codexThreadsAvailable();
-  const selection = currentThreadSelection();
   const history = codex && state.threadView === "history";
-  const hasThread = codex && selection.mode === "resume" && Boolean(selection.threadId);
+  const hasThread = codex && Boolean(selectedConversationId());
 
   for (const element of document.querySelectorAll(".codex-only")) {
     element.classList.toggle("hidden", !codex);
@@ -811,6 +1245,7 @@ function renderTasks() {
       userMessage: turn.note,
       origin: "vscode",
       attachments: [],
+      inputReferences: turn.inputReferences || [],
       activityItems: [],
       optimistic: true,
     }));
@@ -856,27 +1291,11 @@ function renderTasks() {
 }
 
 function tasksForThreadSelection(selection) {
-  if (!codexThreadsAvailable() || selection.mode === "auto") return state.tasks;
-  if (selection.mode === "resume" && selection.threadId) {
-    return state.tasks.filter((task) => (
-      task.threadId === selection.threadId || task.sessionId === selection.threadId
-    ));
-  }
-  if (selection.mode === "new" && selection.requestId) {
-    return state.tasks.filter((task) => task.clientTaskId === selection.requestId);
-  }
-  return [];
+  return state.tasks;
 }
 
 function storedThreadTasks(selection) {
-  const detail = state.threadDetail;
-  if (
-    selection.mode !== "resume" ||
-    !selection.threadId ||
-    detail?.threadId !== selection.threadId ||
-    !Array.isArray(detail.turns)
-  ) return [];
-  return detail.turns.map(storedTurnTask).filter(Boolean);
+  return [];
 }
 
 function storedTurnTask(turn) {
@@ -973,10 +1392,17 @@ function taskTurn(task) {
   turn.className = "turn";
   turn.dataset.taskId = task.taskId;
 
-  if (task.userMessage || task.attachments?.length) {
+  if (task.regeneratedFromTaskId || task.regenerated_from_task_id) {
+    const restart = document.createElement("div");
+    restart.className = "restart-divider";
+    restart.append(document.createElement("span"), textElement("strong", "다시 시작"), document.createElement("span"));
+    turn.append(restart);
+  }
+
+  if (task.userMessage || task.attachments?.length || task.inputReferences?.length) {
     const user = document.createElement("section");
     user.className = "user-message";
-    if (task.attachments?.length) user.append(attachmentPreview(task));
+    if (task.attachments?.length || task.inputReferences?.length) user.append(attachmentPreview(task));
     if (task.userMessage) user.append(textElement("div", task.userMessage, "user-bubble"));
 
     const userMeta = document.createElement("div");
@@ -994,22 +1420,33 @@ function taskTurn(task) {
     turn.append(user);
   }
 
-  appendClarificationTurns(turn, task);
+  if (task.origin === "ipad") appendClarificationTurns(turn, task);
 
   const assistant = document.createElement("section");
   assistant.className = "assistant-message";
-  assistant.append(workLog(task));
+  const log = workLog(task);
+  if (log) assistant.append(log);
 
   if (task.agentReply) assistant.append(markdownResponse(task.agentReply, task.projectId));
   if (task.error) assistant.append(textElement("div", task.error, "assistant-copy task-error"));
-  if (task.questions?.length) assistant.append(questionList(task));
+  if (task.origin === "ipad" && task.questions?.length) assistant.append(questionList(task));
   if (task.changedFiles?.length) assistant.append(filesCard(task));
 
   if (task.agentReply) {
+    const footer = document.createElement("div");
+    footer.className = "response-footer";
     const actions = document.createElement("nav");
     actions.className = "response-actions";
     actions.setAttribute("aria-label", "답변 작업");
     const responseKey = responseFeedbackKey(task);
+    if (canRegenerateTask(task)) {
+      const regenerate = iconButton("refresh", "답변 다시 생성", () => {
+        regenerateTask(task);
+      }, "response-action");
+      regenerate.disabled = state.regeneratePendingTaskId === task.taskId || hasActiveTask();
+      regenerate.classList.toggle("pending", state.regeneratePendingTaskId === task.taskId);
+      actions.append(regenerate);
+    }
     actions.append(iconButton("copy", "답변 복사", (event) => {
       requestCopy(event.currentTarget, task.agentReply);
     }, "response-action"));
@@ -1022,10 +1459,50 @@ function taskTurn(task) {
         title: task.userMessage || threadTitle(),
       });
     }, "response-action"));
-    assistant.append(actions);
+    footer.append(actions, assistantMetadata(task));
+    assistant.append(footer);
   }
   turn.append(assistant);
   return turn;
+}
+
+function canRegenerateTask(task) {
+  return Boolean(
+    !task?.stored &&
+    !ACTIVE_STATUSES.has(task.status) &&
+    (task.threadId || task.sessionId),
+  );
+}
+
+function assistantMetadata(task) {
+  const meta = document.createElement("div");
+  meta.className = "assistant-meta";
+  const parts = [formatDate(task.completedAt || task.updatedAt)];
+  const model = taskModelLabel(task);
+  if (model) parts.push(model);
+  const usage = usageLabel(task.usage);
+  if (usage) parts.push(usage);
+  meta.textContent = parts.filter(Boolean).join(" · ");
+  return meta;
+}
+
+function taskModelLabel(task) {
+  if (task.agentModel) {
+    const agent = state.agents.find((candidate) => candidate.agentId === task.agentId);
+    const option = agent?.models?.find((candidate) => candidate.value === task.agentModel);
+    return option?.label || task.agentModel;
+  }
+  const agent = state.agents.find((candidate) => candidate.agentId === task.agentId);
+  return shortAgentName(agent) || task.agentId || "로컬 CLI";
+}
+
+function usageLabel(usage) {
+  if (!usage) return "";
+  const cost = Number(usage.costUsd);
+  if (Number.isFinite(cost) && cost > 0) return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+  const tokens = Number(usage.totalTokens);
+  if (Number.isFinite(tokens) && tokens > 0) return `${new Intl.NumberFormat("ko-KR").format(tokens)} tokens`;
+  return "";
 }
 
 function appendClarificationTurns(turn, task) {
@@ -1075,6 +1552,7 @@ function appendClarificationTurns(turn, task) {
 function workLog(task) {
   const active = ACTIVE_STATUSES.has(task.status);
   const items = task.activityItems || task.activity_items || [];
+  if (!active && task.status === "completed") return null;
   const elapsed = `${formatDuration(task.createdAt, task.completedAt || task.updatedAt)} 동안 작업함`;
   const label = active
     ? statusDescription(task.status)
@@ -1158,12 +1636,15 @@ function activityIcon(kind) {
 }
 
 function attachmentPreview(task) {
+  const collection = document.createElement("div");
+  collection.className = "user-attachments";
   const preview = document.createElement("figure");
   preview.className = "user-attachment";
   const stack = document.createElement("div");
   stack.className = "attachment-stack";
   const rendered = (task.attachments || []).filter((item) => item.kind === "rendered_view");
   const drawings = (task.attachments || []).filter((item) => item.kind === "drawing_overlay");
+  const references = (task.attachments || []).filter((item) => item.kind === "reference_image");
   const ordered = [...rendered, ...drawings];
   for (const [index, item] of ordered.entries()) {
     const image = document.createElement("img");
@@ -1175,8 +1656,55 @@ function attachmentPreview(task) {
     image.loading = index === 0 ? "eager" : "lazy";
     stack.append(image);
   }
-  preview.append(stack, textElement("figcaption", "iPad 화면 · 드로잉", "attachment-label"));
-  return preview;
+  if (ordered.length) {
+    preview.append(stack, textElement("figcaption", "iPad 화면 · 드로잉", "attachment-label"));
+    collection.append(preview);
+  }
+  for (const item of references) {
+    const figure = document.createElement("figure");
+    figure.className = "reference-attachment";
+    const image = document.createElement("img");
+    image.src = new URL(item.url, `${state.configuration.url}/`).href;
+    image.alt = item.name || "참조 이미지";
+    image.loading = "lazy";
+    figure.append(image, textElement("figcaption", item.name || "참조 이미지"));
+    collection.append(figure);
+  }
+  for (const item of task.inputReferences || []) {
+    if (item.kind === "image" && references.length) continue;
+    collection.append(attachmentChip(item, false));
+  }
+  return collection;
+}
+
+function attachmentChip(item, removable) {
+  const chip = document.createElement("div");
+  chip.className = `attachment-chip attachment-${item.kind || "file"}`;
+  chip.append(icon(item.kind === "image" ? "image" : "file"));
+  const copy = document.createElement("span");
+  copy.className = "attachment-chip-copy";
+  copy.append(
+    textElement("strong", item.name || item.relativePath || "첨부 파일"),
+    textElement("span", item.kind === "image" ? "이미지" : item.relativePath || "프로젝트 파일"),
+  );
+  chip.append(copy);
+  if (removable) {
+    chip.append(iconButton("close", `${item.name || "첨부 파일"} 제거`, () => {
+      state.draftAttachments = state.draftAttachments.filter(
+        (attachment) => attachment.path !== item.path,
+      );
+      persistViewState();
+      renderComposer();
+    }, "attachment-remove"));
+  }
+  return chip;
+}
+
+function renderDraftAttachments() {
+  dom.attachmentTray.replaceChildren(
+    ...state.draftAttachments.map((attachment) => attachmentChip(attachment, true)),
+  );
+  dom.attachmentTray.classList.toggle("hidden", !state.draftAttachments.length);
 }
 
 function filesCard(task) {
@@ -1591,7 +2119,14 @@ function renderComposer() {
   const activeTask = state.tasks.findLast((task) => ACTIVE_STATUSES.has(task.status));
   const active = Boolean(activeTask) || state.optimisticTurns.some((turn) => turn.projectId === state.selectedProjectId);
   const inputDisabled = !state.connected || !project || project.status === "unavailable";
+  renderDraftAttachments();
   dom.promptInput.disabled = inputDisabled;
+  dom.attachButton.disabled = inputDisabled || Boolean(state.attachmentRequestId);
+  const hasUsableAgent = state.agents.some((agent) => (
+    ["codex-cli", "claude-code"].includes(agent.agentId) && agent.usable
+  ));
+  dom.agentButton.disabled = inputDisabled || !hasUsableAgent;
+  dom.approvalButton.disabled = inputDisabled;
   const mode = activeTask ? "stop" : "send";
   if (dom.sendButton.dataset.mode !== mode) {
     dom.sendButton.dataset.mode = mode;
@@ -1602,7 +2137,7 @@ function renderComposer() {
   dom.sendButton.title = mode === "stop" ? "작업 중단" : "전송";
   dom.sendButton.disabled = inputDisabled || (mode === "stop"
     ? state.cancelPendingTaskId === activeTask?.taskId
-    : active || state.pendingRequestId || !dom.promptInput.value.trim());
+    : active || state.pendingRequestId || (!dom.promptInput.value.trim() && !state.draftAttachments.length));
   dom.modelSelect.disabled = Number(dom.modelSelect.dataset.optionCount || 0) <= 1;
   dom.effortSelect.disabled = Number(dom.effortSelect.dataset.optionCount || 0) <= 1;
   dom.speedSelect.disabled = Number(dom.speedSelect.dataset.optionCount || 0) <= 1;
@@ -1610,12 +2145,28 @@ function renderComposer() {
     ? "로컬에서 작업 · 다음 요청을 미리 입력할 수 있습니다"
     : state.pendingRequestId
       ? "요청을 전송하는 중…"
-      : "로컬에서 작업";
+      : "로컬에서 작업 · / 명령 · @ 컨텍스트";
+  dom.chatInputContainer.classList.toggle("working", active);
   positionScrollToBottomButton();
 }
 
 function selectedProject() {
   return state.projects.find((project) => project.projectId === state.selectedProjectId);
+}
+
+function selectedConversationId() {
+  return state.selectedProjectId
+    ? state.selectedConversationIds[state.selectedProjectId] || null
+    : null;
+}
+
+function conversationAgentKey() {
+  return selectedConversationId() || state.selectedProjectId || "default";
+}
+
+function selectedAgentId() {
+  const project = selectedProject();
+  return state.selectedAgents[conversationAgentKey()] || project?.agent || "codex-cli";
 }
 
 function resizeComposer() {
@@ -1819,10 +2370,16 @@ function icon(name) {
     send: ["m5 12 7-7 7 7", "M12 19V5"],
     terminal: ["m5 7 4 4-4 4", "M11 15h8"],
     file: ["M6 3h8l4 4v14H6z", "M14 3v5h5"],
+    image: ["M4 5h16v14H4z", "m5 16 4-4 3 3 3-4 4 5", "M15.5 8.5h.01"],
+    close: ["M6 6l12 12", "M18 6 6 18"],
     check: ["m5 12 4 4L19 6"],
     "thumb-up": ["M7 10v10H3V10z", "M7 18h10.2a2 2 0 0 0 2-1.7l1-6A2 2 0 0 0 18.2 8H14l.6-3a2.3 2.3 0 0 0-4.2-1.6L7 10"],
     "thumb-down": ["M7 14V4H3v10z", "M7 6h10.2a2 2 0 0 1 2 1.7l1 6a2 2 0 0 1-2 2.3H14l.6 3a2.3 2.3 0 0 1-4.2 1.6L7 14"],
     expand: ["M14 5h5v5", "m19 5-6 6", "M10 19H5v-5", "m5 19 6-6"],
+    refresh: ["M20 6v5h-5", "M19 11a7.5 7.5 0 1 0 .2 4.3"],
+    shield: ["M12 3 19 6v5c0 4.5-2.8 7.5-7 10-4.2-2.5-7-5.5-7-10V6z"],
+    warning: ["M12 3 22 20H2z", "M12 9v4", "M12 17h.01"],
+    rocket: ["M14 5c2.5-2.5 5-2 7-2-0 2 .5 4.5-2 7l-5 5-5-5z", "M9 10 5 11l-2 4 5-1", "M14 15l-1 5 4-2 1-4"],
     spark: ["m12 3 1.3 4.7L18 9l-4.7 1.3L12 15l-1.3-4.7L6 9l4.7-1.3z"],
   };
   for (const data of definitions[name] || definitions.spark) {
@@ -1873,6 +2430,10 @@ function statusDescription(status) {
   }[status] || "작업 상태가 변경되었습니다";
 }
 
-vscode.postMessage({ type: "ready", projectId: state.selectedProjectId });
+vscode.postMessage({
+  type: "ready",
+  projectId: state.selectedProjectId,
+  conversationId: selectedConversationId(),
+});
 schedulePoll();
 connectEventStream();

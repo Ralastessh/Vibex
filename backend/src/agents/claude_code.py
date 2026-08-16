@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from src.agents.base import AgentRunResult, ProgressCallback
 from src.agents.contract import ContractError, extract
+from src.tasks.models import AgentUsage, ApprovalMode
 
 # 로깅용
 logger = logging.getLogger("src.agents.claude")
@@ -64,6 +65,7 @@ class ClaudeCodeAdapter:
         self, prompt: str, session_id: str | None,
         test_commands: list[str] | None, image_paths: list[Path] | None = None,
         model: str | None = None, effort: str | None = None,
+        approval_mode: ApprovalMode = "default",
     ) -> list[str]:
         command = [self._binary, "-p", prompt, "--output-format", "json"]
 
@@ -74,7 +76,12 @@ class ClaudeCodeAdapter:
             command += ["--model", model]
         if effort:
             command += ["--effort", effort]
-        command += ["--permission-mode", "acceptEdits"]
+        if approval_mode == "bypass":
+            command += ["--dangerously-skip-permissions"]
+        elif approval_mode == "autopilot":
+            command += ["--permission-mode", "auto"]
+        else:
+            command += ["--permission-mode", "acceptEdits"]
 
         preapproved = ["Read"] if image_paths else []
         preapproved += [f"Bash({c}:*)" for c in (test_commands or [])]
@@ -101,6 +108,7 @@ class ClaudeCodeAdapter:
         model: str | None = None,
         effort: str | None = None,
         speed_mode: str | None = None,
+        approval_mode: ApprovalMode = "default",
         on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
         del speed_mode, on_progress  # Claude JSON 출력에는 부분 이벤트가 없다.
@@ -115,7 +123,8 @@ class ClaudeCodeAdapter:
             )
             prompt = f"{attachment_context}\n\n{prompt}"
         command = self._command(
-            prompt, session_id, test_commands, image_paths, model=model, effort=effort
+            prompt, session_id, test_commands, image_paths, model=model, effort=effort,
+            approval_mode=approval_mode,
         )
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -145,10 +154,18 @@ class ClaudeCodeAdapter:
             stdout.decode("utf-8", "replace"),
             stderr.decode("utf-8", "replace"),
             fallback_session_id=session_id,
+            requested_model=model,
         )
 
     # LLM 답변 후 해석
-    def _parse(self, stdout: str, stderr: str, *, fallback_session_id: str | None) -> AgentRunResult:
+    def _parse(
+        self,
+        stdout: str,
+        stderr: str,
+        *,
+        fallback_session_id: str | None,
+        requested_model: str | None = None,
+    ) -> AgentRunResult:
         envelope = _load_json(stdout)
         if envelope is None:
             return AgentRunResult(
@@ -185,6 +202,8 @@ class ClaudeCodeAdapter:
             denied_tools=denied,
             error=error,
             raw_output=result_text,
+            resolvedModel=str(envelope.get("model") or requested_model or "") or None,
+            usage=_usage(envelope),
             cost_usd=envelope.get("total_cost_usd"))
 
 # stdout에서 JSON 불러오기
@@ -197,3 +216,20 @@ def _load_json(stdout: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def _usage(envelope: dict) -> AgentUsage | None:
+    raw = envelope.get("usage") or {}
+    cost = envelope.get("total_cost_usd")
+    if not raw and cost is None:
+        return None
+    input_tokens = int(raw.get("input_tokens") or 0)
+    output_tokens = int(raw.get("output_tokens") or 0)
+    cached_tokens = int(raw.get("cache_read_input_tokens") or 0)
+    return AgentUsage(
+        inputTokens=input_tokens,
+        cachedInputTokens=cached_tokens,
+        outputTokens=output_tokens,
+        totalTokens=input_tokens + output_tokens,
+        costUsd=cost,
+    )

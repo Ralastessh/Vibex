@@ -1,18 +1,22 @@
 from __future__ import annotations
 import asyncio
+import inspect
 import logging
 from pathlib import Path
 from src.agents.base import AgentAdapter, AgentProgress
 from src.agents.contract import without_block
 from src.projects import git
 from src.projects.registry import Project
-from src.tasks.models import ChangedFile, TaskStatus, ThreadMode
+from src.tasks.models import ApprovalMode, ChangedFile, TaskStatus, ThreadMode
 from src.tasks.store import TaskStore
 
 logger = logging.getLogger("bridge.runner")
 
 def _reply(result) -> str | None:
-    """내부 bridge 블록만 제거하고 에이전트의 답변은 그대로 보존한다."""
+    """구조화 보고서의 사용자 답변을 우선하고 내부 bridge 블록은 숨긴다."""
+    report_reply = getattr(result.report, "reply", "") if result.report else ""
+    if report_reply:
+        return report_reply
     text = without_block(result.raw_output)
     return text or None
 
@@ -116,6 +120,7 @@ async def run_task(
     model: str | None = None,
     effort: str | None = None,
     speed_mode: str | None = None,
+    approval_mode: ApprovalMode = "default",
     thread_mode: ThreadMode = "auto",
 ) -> None:
     """기록된 세션 또는 같은 프로젝트의 기존 세션을 이어서 작업한다."""
@@ -131,6 +136,7 @@ async def run_task(
             model=model,
             effort=effort,
             speed_mode=speed_mode,
+            approval_mode=approval_mode,
             thread_mode=thread_mode,
         )
     except asyncio.CancelledError:
@@ -168,6 +174,7 @@ async def _run(
     model: str | None = None,
     effort: str | None = None,
     speed_mode: str | None = None,
+    approval_mode: ApprovalMode = "default",
     thread_mode: ThreadMode = "auto",
 ) -> None:
     try:
@@ -221,20 +228,28 @@ async def _run(
                 task_id,
                 agent_reply=visible_reply or None,
                 activity_items=progress.activity_items,
+                usage=progress.usage,
                 thread_id=progress.thread_id,
                 turn_id=progress.turn_id,
             )
 
+        run_options = {
+            "test_commands": project.test_commands,
+            "image_paths": image_paths,
+            "model": model,
+            "effort": effort,
+            "speed_mode": speed_mode,
+            "on_progress": on_progress,
+        }
+        # 외부/테스트 어댑터의 기존 계약은 깨지 않는다. 새 어댑터만 실제
+        # approval_mode를 받아 각 CLI 정책으로 변환한다.
+        if "approval_mode" in inspect.signature(adapter.resume_and_run).parameters:
+            run_options["approval_mode"] = approval_mode
         result = await adapter.resume_and_run(
             project.repo_path,
             session_id,
             prompt,
-            test_commands=project.test_commands,
-            image_paths=image_paths,
-            model=model,
-            effort=effort,
-            speed_mode=speed_mode,
-            on_progress=on_progress,
+            **run_options,
         )
         await _name_new_thread(
             task_id=task_id,
@@ -280,6 +295,8 @@ async def _run(
             changed_files=_changed_files(delta, None),
             test_results=[],
             activity_items=result.activity_items or None,
+            usage=result.usage,
+            agent_model=result.resolved_model,
             questions=[],
             warnings=warnings,
             session_id=result.session_id or "",
@@ -306,6 +323,8 @@ async def _run(
             changed_files=_changed_files(delta, report),
             test_results=report.tests if report else [],
             activity_items=result.activity_items or None,
+            usage=result.usage,
+            agent_model=result.resolved_model,
             warnings=warnings,
             session_id=result.session_id or "",
             thread_id=result.thread_id,
@@ -318,6 +337,34 @@ async def _run(
 
     assert report is not None
 
+    if report.needs_answer and current is not None and current.origin == "vscode":
+        # 구버전 세션이나 모델이 iPad 계약을 답습하더라도 VS Code를 선택지
+        # 승인 흐름에 가두지 않는다. 질문은 평범한 assistant 답변으로 보여 주고
+        # 다음 입력을 새 사용자 턴으로 받을 수 있게 작업을 완료한다.
+        follow_up = _reply(result) or "\n\n".join(
+            question.text for question in report.questions if question.text
+        )
+        store.update(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            summary=report.summary,
+            agent_reply=follow_up,
+            questions=[],
+            changed_files=_changed_files(delta, report),
+            test_results=report.tests,
+            activity_items=result.activity_items or None,
+            usage=result.usage,
+            agent_model=result.resolved_model,
+            warnings=warnings,
+            session_id=result.session_id or "",
+            thread_id=result.thread_id,
+            turn_id=result.turn_id,
+            review_patch=delta.patch,
+            review_before_tree=before.tree,
+            review_after_tree=after.tree,
+        )
+        return
+
     if report.needs_answer:
         store.update(
             task_id,
@@ -327,6 +374,8 @@ async def _run(
             questions=report.questions,
             changed_files=_changed_files(delta, report),
             activity_items=result.activity_items or None,
+            usage=result.usage,
+            agent_model=result.resolved_model,
             warnings=warnings,
             session_id=result.session_id or "",
             thread_id=result.thread_id,
@@ -345,6 +394,8 @@ async def _run(
         changed_files=_changed_files(delta, report),
         test_results=report.tests,
         activity_items=result.activity_items or None,
+        usage=result.usage,
+        agent_model=result.resolved_model,
         questions=[],
         warnings=warnings,
         session_id=result.session_id or "",

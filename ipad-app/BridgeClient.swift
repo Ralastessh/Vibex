@@ -24,6 +24,37 @@ enum TaskStatus: String, Decodable {
 struct TaskCreated: Decodable {
     let taskId: String
     let status: TaskStatus
+    let conversationId: String?
+}
+
+struct AgentOption: Decodable, Identifiable {
+    let value: String
+    let label: String
+    var id: String { value }
+}
+
+struct AgentView: Decodable, Identifiable {
+    let agentId: String
+    let displayName: String
+    let usable: Bool
+    let note: String
+    let models: [AgentOption]
+    var id: String { agentId }
+}
+
+struct ConversationView: Decodable, Identifiable {
+    let conversationId: String
+    let projectId: String
+    let title: String
+    let createdAt: Date
+    let updatedAt: Date
+    let agentSessions: [String: String]
+    var id: String { conversationId }
+}
+
+struct ConversationDetail: Decodable {
+    let conversation: ConversationView
+    let tasks: [TaskView]
 }
 
 struct ProjectView: Decodable, Identifiable {
@@ -77,8 +108,14 @@ struct HealthView: Decodable {
 struct TaskView: Decodable {
     let taskId: String
     let projectId: String
+    let conversationId: String?
     let status: TaskStatus
     let sessionId: String?
+    let agentId: String?
+    let agentModel: String?
+    let userMessage: String
+    let createdAt: Date
+    let updatedAt: Date
     let summary: String?
     /// 에이전트가 사람에게 한 말. summary는 한 문장뿐이라 자세한 설명은 여기 있다.
     let agentReply: String?
@@ -163,6 +200,34 @@ struct BridgeClient {
         return try await send(request(path: "projects"), as: Response.self).projects
     }
 
+    func listAgents() async throws -> [AgentView] {
+        struct Response: Decodable { let agents: [AgentView] }
+        return try await send(request(path: "agents"), as: Response.self).agents
+    }
+
+    func conversations(projectId: String) async throws -> [ConversationView] {
+        struct Response: Decodable { let conversations: [ConversationView] }
+        return try await send(
+            request(path: "projects/\(projectId)/conversations"),
+            as: Response.self
+        ).conversations
+    }
+
+    func createConversation(projectId: String) async throws -> ConversationView {
+        try await sendJSON(
+            path: "projects/\(projectId)/conversations",
+            body: ["title": "새 대화"],
+            as: ConversationView.self
+        )
+    }
+
+    func conversation(projectId: String, conversationId: String) async throws -> ConversationDetail {
+        try await send(
+            request(path: "projects/\(projectId)/conversations/\(conversationId)"),
+            as: ConversationDetail.self
+        )
+    }
+
     func startPreview(projectId: String) async throws -> PreviewView {
         try await send(
             request(path: "projects/\(projectId)/preview", method: "POST"),
@@ -182,9 +247,13 @@ struct BridgeClient {
         projectId: String,
         snapshot: CanvasComposer.Snapshot,
         typedNote: String? = nil,
-        clientTaskId: String
+        clientTaskId: String,
+        conversationId: String? = nil,
+        agentId: String? = nil
     ) async throws -> TaskCreated {
         var fields = ["projectId": projectId, "clientTaskId": clientTaskId]
+        if let conversationId { fields["conversationId"] = conversationId }
+        if let agentId { fields["agentId"] = agentId }
         if let typedNote, !typedNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fields["typedNote"] = typedNote
         }
@@ -203,16 +272,20 @@ struct BridgeClient {
 
     /// 텍스트만 보낸다(그림 없이).
     func createTask(
-        projectId: String, typedNote: String, clientTaskId: String
+        projectId: String,
+        typedNote: String,
+        clientTaskId: String,
+        conversationId: String? = nil,
+        agentId: String? = nil
     ) async throws -> TaskCreated {
-        let (body, contentType) = Self.multipartBody(
-            fields: [
-                "projectId": projectId,
-                "clientTaskId": clientTaskId,
-                "typedNote": typedNote,
-            ],
-            files: []
-        )
+        var fields = [
+            "projectId": projectId,
+            "clientTaskId": clientTaskId,
+            "typedNote": typedNote,
+        ]
+        if let conversationId { fields["conversationId"] = conversationId }
+        if let agentId { fields["agentId"] = agentId }
+        let (body, contentType) = Self.multipartBody(fields: fields, files: [])
         var req = request(path: "tasks", method: "POST")
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         req.httpBody = body
@@ -299,7 +372,22 @@ struct BridgeClient {
         }
 
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let value = try container.decode(String.self)
+                let fractional = ISO8601DateFormatter()
+                fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = fractional.date(from: value) { return date }
+                let standard = ISO8601DateFormatter()
+                standard.formatOptions = [.withInternetDateTime]
+                if let date = standard.date(from: value) { return date }
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "ISO 8601 날짜를 해석할 수 없습니다: \(value)"
+                )
+            }
+            return try decoder.decode(T.self, from: data)
         } catch {
             throw BridgeError(message: "서버 응답을 해석할 수 없습니다.", statusCode: status)
         }

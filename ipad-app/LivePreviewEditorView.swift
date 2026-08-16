@@ -7,6 +7,8 @@ import WebKit
 struct LivePreviewEditorView: View {
     @ObservedObject var model: AppModel
     let projectId: String
+    let conversationId: String
+    let agentId: String
     let previewURL: URL
     var allowFingerDrawing = false
 
@@ -335,7 +337,9 @@ struct LivePreviewEditorView: View {
                     projectId: projectId,
                     snapshot: snapshot,
                     typedNote: note,
-                    clientTaskId: clientTaskId
+                    clientTaskId: clientTaskId,
+                    conversationId: conversationId,
+                    agentId: agentId
                 )
                 activeTaskId = result.taskId
                 currentStatus = result.status
@@ -367,7 +371,11 @@ struct LivePreviewEditorView: View {
                     questions = []
                     overlayFrames = [:]
                     customAnswers = [:]
-                    created = TaskCreated(taskId: task.taskId, status: task.status)
+                    created = TaskCreated(
+                        taskId: task.taskId,
+                        status: task.status,
+                        conversationId: task.conversationId
+                    )
                     return
                 }
             } catch {

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     device_token: str = ""
     tailscale_allowed_users: str = ""
     projects_file: Path = REPO_ROOT / "projects.local.json"
+    conversations_file: Path | None = None
     workspace_root: Path | None = None
     # 향후 다양한 모델 지원 예정
     claude_binary: str = "claude"
@@ -31,6 +32,13 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         # 요청 전체 상한 — canvas + base + 폼 필드
         return self.max_image_bytes * 2 + 1024 * 1024
+
+    @property
+    def conversation_store_file(self) -> Path:
+        """프로젝트 설정 옆에 공용 VIBEX 대화 기록을 둔다."""
+        return self.conversations_file or self.projects_file.with_name(
+            "conversations.local.json"
+        )
 
     @property
     def tailscale_user_allowlist(self) -> set[str]:

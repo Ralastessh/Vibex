@@ -126,6 +126,37 @@ async def test_agent_reply_is_kept(store, project):
     assert done.summary == "버튼 색 변경" 
 
 
+async def test_structured_reply_is_used_when_only_bridge_block_is_returned(
+    store, project
+):
+    report = AgentReport(status="completed", summary="확인", reply="VIBEX UI 확인")
+    raw = (
+        '```bridge\n'
+        '{"status":"completed","reply":"VIBEX UI 확인",'
+        '"summary":"확인","changedFiles":[],"tests":[],"questions":[],"warnings":[]}'
+        '\n```'
+    )
+    agent = FakeAgent(
+        AgentRunResult(
+            session_id="s1",
+            report=report,
+            ok=True,
+            raw_output=raw,
+        )
+    )
+    task = store.create("demo")
+
+    await run_task(
+        task_id=task.task_id,
+        project=project,
+        prompt="확인만 답해줘",
+        adapter=agent,
+        store=store,
+    )
+
+    assert store.get(task.task_id).agent_reply == "VIBEX UI 확인"
+
+
 async def test_agent_reply_is_kept_on_failure(store, project):
     """실패했을 때야말로 에이전트가 뭐라고 했는지 확인해야 함"""
     agent = FakeAgent(
@@ -290,6 +321,35 @@ async def test_questions_move_task_to_awaiting(store, project):
     done = store.get(task.task_id)
     assert done.status is TaskStatus.AWAITING_CONFIRMATION
     assert done.questions[0].options[0].label == "A안"
+
+
+async def test_vscode_question_is_rendered_as_normal_reply_not_confirmation(
+    store, project
+):
+    report = AgentReport(
+        status="needs_answer",
+        summary="확인 필요",
+        questions=[Question(
+            questionId="q1",
+            text="어느 쪽으로 진행할까요?",
+            options=[QuestionOption(optionId="a", label="A안")],
+        )],
+    )
+    agent = FakeAgent(AgentRunResult(session_id="s1", report=report, ok=True))
+    task = store.create("demo", origin="vscode")
+
+    await run_task(
+        task_id=task.task_id,
+        project=project,
+        prompt="p",
+        adapter=agent,
+        store=store,
+    )
+
+    done = store.get(task.task_id)
+    assert done.status is TaskStatus.COMPLETED
+    assert done.agent_reply == "어느 쪽으로 진행할까요?"
+    assert done.questions == []
 
 
 async def test_missing_repo_fails_before_running_the_agent(store, project, repo):
@@ -512,6 +572,68 @@ async def test_vscode_message_origin_is_preserved(api):
     assert body["origin"] == "vscode"
 
 
+async def test_project_conversation_resumes_each_agents_bound_session(api):
+    registry = api.app.state.registry
+    registry.set_agent_session("demo", "claude-code", "claude-bound")
+
+    first = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "Claude 턴",
+            "origin": "vscode",
+        },
+    )
+    assert first.status_code == 202
+    await _settle(api)
+    assert api.app.state.adapter.calls[-1][1] == "claude-bound"
+    assert registry.resolve("demo").agent_sessions["claude-code"] == "s1"
+
+    registry.set_agent("demo", "codex-cli")
+    registry.set_agent_session("demo", "codex-cli", "codex-bound")
+    second = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "Codex 턴",
+            "origin": "vscode",
+        },
+    )
+    assert second.status_code == 202
+    await _settle(api)
+    assert api.app.state.adapter.calls[-1][1] == "codex-bound"
+
+    registry.set_agent("demo", "claude-code")
+    third = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "다시 Claude 턴",
+            "origin": "vscode",
+        },
+    )
+    assert third.status_code == 202
+    await _settle(api)
+    assert api.app.state.adapter.calls[-1][1] == "s1"
+
+    timeline = api.get(
+        "/api/v1/tasks?projectId=demo&limit=10", headers=AUTH
+    ).json()["tasks"]
+    assert [task["userMessage"] for task in timeline[-3:]] == [
+        "Claude 턴",
+        "Codex 턴",
+        "다시 Claude 턴",
+    ]
+    assert [task["agentId"] for task in timeline[-3:]] == [
+        "claude-code",
+        "codex-cli",
+        "claude-code",
+    ]
+
+
 async def test_model_and_effort_are_forwarded_and_recorded(api):
     created = api.post(
         "/api/v1/tasks",
@@ -587,6 +709,39 @@ async def test_api_resume_forwards_the_selected_thread_id(api):
 
     assert api.app.state.adapter.find_calls == 0
     assert api.app.state.adapter.calls[-1][1] == "selected-thread"
+
+
+async def test_completed_task_can_regenerate_in_the_exact_same_session(api):
+    created = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "typedNote": "이 프로젝트를 설명해줘",
+            "approvalMode": "autopilot",
+        },
+    )
+    assert created.status_code == 202
+    await _settle(api)
+    original_id = created.json()["taskId"]
+
+    answering = FakeAgent(completed())
+    api.app.state.adapter = answering
+    response = api.post(
+        f"/api/v1/tasks/{original_id}/regenerate",
+        headers=AUTH,
+    )
+    assert response.status_code == 202
+    await _settle(api)
+
+    regenerated = api.get(
+        f"/api/v1/tasks/{response.json()['taskId']}", headers=AUTH
+    ).json()
+    assert regenerated["regeneratedFromTaskId"] == original_id
+    assert regenerated["userMessage"] == "이 프로젝트를 설명해줘"
+    assert regenerated["approvalMode"] == "autopilot"
+    assert answering.calls[0][1] == "s1"
+    assert "원래 사용자 요청: 이 프로젝트를 설명해줘" in answering.calls[0][2]
 
 
 def test_explicit_thread_modes_are_not_advertised_for_claude(api):

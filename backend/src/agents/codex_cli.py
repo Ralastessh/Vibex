@@ -15,7 +15,7 @@ from src.agents.codex_app_server import (
     error_text,
 )
 from src.agents.contract import ContractError, extract
-from src.tasks.models import ActivityItem
+from src.tasks.models import ActivityItem, AgentUsage, ApprovalMode
 
 logger = logging.getLogger("bridge.agents.codex")
 
@@ -85,6 +85,7 @@ class _ProgressCollector:
         self._items: dict[str, ActivityItem] = {}
         self._thread_id: str | None = None
         self._turn_id: str | None = None
+        self._usage: AgentUsage | None = None
 
     @property
     def agent_reply(self) -> str:
@@ -94,6 +95,10 @@ class _ProgressCollector:
     def activity_items(self) -> list[ActivityItem]:
         return [item.model_copy(deep=True) for item in self._items.values()]
 
+    @property
+    def usage(self) -> AgentUsage | None:
+        return self._usage.model_copy(deep=True) if self._usage is not None else None
+
     def set_context(self, thread_id: str, turn_id: str) -> None:
         self._thread_id = thread_id
         self._turn_id = turn_id
@@ -102,6 +107,18 @@ class _ProgressCollector:
     def handle(self, event: dict[str, Any]) -> None:
         method = str(event.get("method") or "")
         params = event.get("params") or {}
+
+        if method == "thread/tokenUsage/updated":
+            usage = (params.get("tokenUsage") or {}).get("last") or {}
+            self._usage = _agent_usage(usage)
+            self._emit()
+            return
+        if method == "rawResponse/completed":
+            usage = params.get("usage") or {}
+            if usage:
+                self._usage = _agent_usage(usage)
+                self._emit()
+            return
 
         if method in {"item/started", "item/completed"}:
             item = params.get("item") or {}
@@ -222,6 +239,7 @@ class _ProgressCollector:
                     activity_items=self.activity_items,
                     threadId=self._thread_id,
                     turnId=self._turn_id,
+                    usage=self.usage,
                 )
             )
         except Exception:
@@ -409,6 +427,7 @@ class CodexCLIAdapter:
         model: str | None = None,
         effort: str | None = None,
         speed_mode: str | None = None,
+        approval_mode: ApprovalMode = "default",
         on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
         del test_commands  # 허용 테스트 명령은 prompt에 포함된다.
@@ -416,6 +435,8 @@ class CodexCLIAdapter:
         progress = _ProgressCollector(on_progress)
         active_thread_id = session_id
         active_turn_id: str | None = None
+        active_model = model
+        approval = _approval_settings(approval_mode, repo_path)
 
         try:
             # 작업마다 독립된 App Server transport를 사용하되, handshake와 JSONL
@@ -428,7 +449,9 @@ class CodexCLIAdapter:
                         {
                             "threadId": session_id,
                             "cwd": str(repo_path),
-                            "approvalPolicy": "never",
+                            "approvalPolicy": approval["approvalPolicy"],
+                            "approvalsReviewer": approval["approvalsReviewer"],
+                            "sandbox": approval["sandbox"],
                         },
                         deadline=deadline,
                     )
@@ -437,14 +460,18 @@ class CodexCLIAdapter:
                         "thread/start",
                         {
                             "cwd": str(repo_path),
-                            "approvalPolicy": "never",
-                            "sandbox": "workspace-write",
+                            "approvalPolicy": approval["approvalPolicy"],
+                            "approvalsReviewer": approval["approvalsReviewer"],
+                            "sandbox": approval["sandbox"],
                             "ephemeral": False,
                         },
                         deadline=deadline,
                     )
 
                 thread = thread_result.get("thread") or {}
+                active_model = str(
+                    thread.get("model") or thread_result.get("model") or active_model or ""
+                ) or None
                 active_thread_id = (
                     str(thread.get("id") or active_thread_id or "") or None
                 )
@@ -467,12 +494,9 @@ class CodexCLIAdapter:
                     "threadId": active_thread_id,
                     "input": inputs,
                     "cwd": str(repo_path),
-                    "approvalPolicy": "never",
-                    "sandboxPolicy": {
-                        "type": "workspaceWrite",
-                        "writableRoots": [str(repo_path)],
-                        "networkAccess": False,
-                    },
+                    "approvalPolicy": approval["approvalPolicy"],
+                    "approvalsReviewer": approval["approvalsReviewer"],
+                    "sandboxPolicy": approval["sandboxPolicy"],
                 }
                 if model:
                     turn_params["model"] = model
@@ -514,6 +538,8 @@ class CodexCLIAdapter:
                 progress.agent_reply,
                 turn_id=active_turn_id,
                 activity_items=progress.activity_items,
+                usage=progress.usage,
+                resolved_model=active_model,
             )
         except asyncio.TimeoutError:
             return AgentRunResult(
@@ -544,6 +570,8 @@ class CodexCLIAdapter:
         *,
         turn_id: str | None = None,
         activity_items: list[ActivityItem] | None = None,
+        usage: AgentUsage | None = None,
+        resolved_model: str | None = None,
     ) -> AgentRunResult:
         try:
             report = extract(raw_output)
@@ -554,6 +582,8 @@ class CodexCLIAdapter:
                 turn_id=turn_id,
                 raw_output=raw_output,
                 activity_items=activity_items or [],
+                usage=usage,
+                resolvedModel=resolved_model,
                 error=str(exc),
             )
         return AgentRunResult(
@@ -564,4 +594,51 @@ class CodexCLIAdapter:
             ok=True,
             raw_output=raw_output,
             activity_items=activity_items or [],
+            usage=usage,
+            resolvedModel=resolved_model,
         )
+
+
+def _number(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _agent_usage(value: dict[str, Any]) -> AgentUsage:
+    return AgentUsage(
+        inputTokens=_number(value.get("inputTokens")),
+        cachedInputTokens=_number(value.get("cachedInputTokens")),
+        outputTokens=_number(value.get("outputTokens")),
+        reasoningOutputTokens=_number(value.get("reasoningOutputTokens")),
+        totalTokens=_number(value.get("totalTokens")),
+    )
+
+
+def _approval_settings(mode: ApprovalMode, repo_path: Path) -> dict[str, Any]:
+    if mode == "bypass":
+        return {
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": "danger-full-access",
+            "sandboxPolicy": {"type": "dangerFullAccess"},
+        }
+    workspace = {
+        "type": "workspaceWrite",
+        "writableRoots": [str(repo_path)],
+        "networkAccess": False,
+    }
+    if mode == "autopilot":
+        return {
+            "approvalPolicy": "never",
+            "approvalsReviewer": "auto_review",
+            "sandbox": "workspace-write",
+            "sandboxPolicy": workspace,
+        }
+    return {
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "auto_review",
+        "sandbox": "workspace-write",
+        "sandboxPolicy": workspace,
+    }

@@ -46,7 +46,8 @@ def fake_codex(tmp_path):
         "    if method == 'initialize':\n"
         "        response = {'id': request_id, 'result': {'userAgent': 'fake'}}\n"
         "    elif method == 'thread/start':\n"
-        "        response = {'id': request_id, 'result': {'thread': {'id': 'codex-session'}}}\n"
+        "        response = {'id': request_id, 'result': {'thread': "
+        "{'id': 'codex-session', 'model': 'gpt-5.6-sol'}}}\n"
         "    elif method == 'thread/list':\n"
         "        response = {'id': request_id, 'result': {'data': [{\n"
         "            'id': 'listed-thread', 'sessionId': 'listed-thread',\n"
@@ -126,6 +127,10 @@ def fake_codex(tmp_path):
         "        print(json.dumps({'method': 'item/completed', 'params': "
         "{'threadId': session_id, 'turnId': 'turn-1', 'item': "
         "{'id': 'agent-2', 'type': 'agentMessage', 'text': agent_message}}}), flush=True)\n"
+        "        print(json.dumps({'method': 'thread/tokenUsage/updated', 'params': "
+        "{'threadId': session_id, 'turnId': 'turn-1', 'tokenUsage': {'last': "
+        "{'inputTokens': 120, 'cachedInputTokens': 20, 'outputTokens': 30, "
+        "'reasoningOutputTokens': 10, 'totalTokens': 150}}}}), flush=True)\n"
         "        print(json.dumps({'method': 'turn/completed', 'params': "
         "{'threadId': session_id, 'turn': {'id': 'turn-1', 'status': 'completed'}}}), flush=True)\n"
         "        continue\n"
@@ -160,6 +165,8 @@ async def test_codex_exec_attaches_images(tmp_path):
     assert inputs[2]["path"] == str(second.resolve())
     assert result.ok and result.session_id == "codex-session"
     assert result.report.summary == "화면을 수정했다."
+    assert result.resolved_model == "gpt-5.6-sol"
+    assert result.usage.total_tokens == 150
 
 
 async def test_codex_streams_messages_and_activity_items_in_order(tmp_path):
@@ -222,6 +229,22 @@ async def test_codex_turn_receives_model_and_effort(tmp_path):
     turn = next(message for message in messages if message.get("method") == "turn/start")
     assert turn["params"]["model"] == "gpt-5.6-terra"
     assert turn["params"]["effort"] == "high"
+
+
+async def test_codex_approval_modes_change_real_app_server_policy(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    binary, messages_file = fake_codex(tmp_path)
+
+    await CodexCLIAdapter(binary=binary).resume_and_run(
+        repo, None, "답변", approval_mode="bypass"
+    )
+    messages = [json.loads(line) for line in messages_file.read_text().splitlines()]
+    start = next(message for message in messages if message.get("method") == "thread/start")
+    turn = next(message for message in messages if message.get("method") == "turn/start")
+    assert start["params"]["approvalPolicy"] == "never"
+    assert start["params"]["sandbox"] == "danger-full-access"
+    assert turn["params"]["sandboxPolicy"] == {"type": "dangerFullAccess"}
 
 
 async def test_codex_lists_every_shared_thread_source_and_exact_cwd(tmp_path):

@@ -27,6 +27,7 @@ class Project(BaseModel):
     repo_path: Path = Field(alias="repoPath")
     enabled: bool = True
     agent: str = "claude-code"
+    agent_sessions: dict[str, str] = Field(default_factory=dict, alias="agentSessions")
     test_commands: list[str] = Field(default_factory=list, alias="testCommands")
     preview_command: list[str] = Field(default_factory=list, alias="previewCommand")
     preview_port: int | None = Field(
@@ -198,6 +199,31 @@ class ProjectRegistry:
             configured = {"projectId": project_id}
             self._configured_projects.append(configured)
         configured["agent"] = agent
+        self._save()
+        return updated
+
+    def set_agent_session(
+        self, project_id: str, agent: str, session_id: str
+    ) -> Project:
+        """한 VIBEX 프로젝트 대화와 에이전트별 실제 세션을 연결한다."""
+        project = self.resolve(project_id)
+        sessions = dict(project.agent_sessions)
+        sessions[agent] = session_id
+        updated = project.model_copy(update={"agent_sessions": sessions})
+        self._by_id[project_id] = updated
+
+        configured = next(
+            (
+                item
+                for item in self._configured_projects
+                if item.get("projectId") == project_id
+            ),
+            None,
+        )
+        if configured is None:
+            configured = {"projectId": project_id}
+            self._configured_projects.append(configured)
+        configured["agentSessions"] = sessions
         self._save()
         return updated
 
