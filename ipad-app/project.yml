@@ -24,7 +24,8 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
-        # DEVELOPMENT_TEAM: "XXXXXXXXXX"   # Xcode에서 본인 서명 팀으로 설정
+        DEVELOPMENT_TEAM: "D5QAJTL57J"      # Joonsu Kim (Apple Development)
+        CODE_SIGN_STYLE: Automatic
     info:
       path: Info.plist
       properties:
