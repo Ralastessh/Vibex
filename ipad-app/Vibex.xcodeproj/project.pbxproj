@@ -7,34 +7,34 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		332636FC6ABFFAD7CF672C64 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_029406AB-853D-437D-80CE-E64565C793F4" /* BridgeClient.swift */; };
-		49F46A627E6349C65425598E /* LivePreviewEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_A5A8C8FA-BEBB-42E3-A36B-F5779B4D63F4" /* LivePreviewEditorView.swift */; };
-		6FBC392A1BA575047D86CB2A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_67C1AC47-6026-41A5-8DC8-3264F3A2A5E8" /* RootView.swift */; };
-		700F65B55D6CB005961D248F /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1FCCB4B8-995D-43A8-8889-F68AA4EB95B8" /* EventStream.swift */; };
-		76B9E8792AF9CA06FF1DD1D9 /* CanvasComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_375A8B85-3E28-4737-8528-5463B9AA83F4" /* CanvasComposer.swift */; };
-		895A8F839EACABAC03161CBE /* SelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_8878406D-D382-472F-95FB-431445827801" /* SelectionOverlay.swift */; };
-		8ACE5D89BD62A0A13FB0FE18 /* VibexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_2218CE41-47CD-4F5A-A9CB-960FF8CF4E40" /* VibexApp.swift */; };
-		A35F9385C91494B4123ED76C /* DrawingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_626B25DE-ECB3-4D59-A5EB-F77B3488F660" /* DrawingToolbar.swift */; };
-		BCB4386F92A21B710F1DE225 /* PencilCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_80A2B188-5562-45D0-AF03-6D841B52A638" /* PencilCanvas.swift */; };
-		BF8CD7271CFBBD700A3BC7BF /* ShapeSnap.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_7E2FC649-D5F3-4D69-B4C7-8D3536858EB0" /* ShapeSnap.swift */; };
-		DC91D2F069EF46B1715D7950 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_9AC19119-BD73-4A4C-A106-C66FBF826BDB" /* HarnessView.swift */; };
-		F859850400D34656541512E9 /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_50695B23-6752-45CC-9D00-2B4265EB58FB" /* AnnotationCanvasView.swift */; };
+		0621236CCA70976DE4DC89EC /* ShapeSnap.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_8D553DD4-6F79-4AAE-B345-66E58C438929" /* ShapeSnap.swift */; };
+		463F1DF98BD2FAED816F2CB0 /* CanvasComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_FA710D1F-7E49-486F-A6D4-5EFC0C1DAFBB" /* CanvasComposer.swift */; };
+		6943D43F4DAB2D366B7D2790 /* PencilCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_18C6C6B1-692F-44C5-9628-2E7E67906731" /* PencilCanvas.swift */; };
+		766E4C36ED774EA96327FEE7 /* DrawingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_505A2636-DE4E-40E7-894B-91A386E443C5" /* DrawingToolbar.swift */; };
+		945E4D49B11F432F4468D18B /* LivePreviewEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3FAE4A60-1DAB-48E0-875C-5EDF8671A7E3" /* LivePreviewEditorView.swift */; };
+		9BD63618155C7F26D6A7D256 /* SelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_114BB21B-D25F-4DA4-B314-10F6AA79D13F" /* SelectionOverlay.swift */; };
+		A31908FE135A74CDCBBE3812 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_552F28C5-5B40-44FA-8EA6-F41640BC4BF1" /* RootView.swift */; };
+		AEB840A377F9F1105A6835BD /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_9CD48598-6148-4E4B-8B67-84E591C44393" /* BridgeClient.swift */; };
+		C85ABA3EE2A24B386F3DA63A /* VibexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_AF112B15-45DD-4570-8293-FF38C43F3E31" /* VibexApp.swift */; };
+		D0D59C6989BE704B8B584013 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_0A8A3B38-9EC6-4BF4-9E02-B9FDEC9DD77E" /* HarnessView.swift */; };
+		D9C28AB54211DE875C5CDF55 /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_E83E7ED5-0D83-44CF-ACF2-6853BB28112B" /* EventStream.swift */; };
+		E38FC85F45CF994BA40B3E93 /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1F906695-1605-40CD-BEE8-4DEB5071C03F" /* AnnotationCanvasView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		8443143F55201380A755EDB2 /* Vibex.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Vibex.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		"TEMP_029406AB-853D-437D-80CE-E64565C793F4" /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
-		"TEMP_1FCCB4B8-995D-43A8-8889-F68AA4EB95B8" /* EventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStream.swift; sourceTree = "<group>"; };
-		"TEMP_2218CE41-47CD-4F5A-A9CB-960FF8CF4E40" /* VibexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibexApp.swift; sourceTree = "<group>"; };
-		"TEMP_375A8B85-3E28-4737-8528-5463B9AA83F4" /* CanvasComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasComposer.swift; sourceTree = "<group>"; };
-		"TEMP_50695B23-6752-45CC-9D00-2B4265EB58FB" /* AnnotationCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasView.swift; sourceTree = "<group>"; };
-		"TEMP_626B25DE-ECB3-4D59-A5EB-F77B3488F660" /* DrawingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingToolbar.swift; sourceTree = "<group>"; };
-		"TEMP_67C1AC47-6026-41A5-8DC8-3264F3A2A5E8" /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		"TEMP_7E2FC649-D5F3-4D69-B4C7-8D3536858EB0" /* ShapeSnap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShapeSnap.swift; sourceTree = "<group>"; };
-		"TEMP_80A2B188-5562-45D0-AF03-6D841B52A638" /* PencilCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvas.swift; sourceTree = "<group>"; };
-		"TEMP_8878406D-D382-472F-95FB-431445827801" /* SelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionOverlay.swift; sourceTree = "<group>"; };
-		"TEMP_9AC19119-BD73-4A4C-A106-C66FBF826BDB" /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
-		"TEMP_A5A8C8FA-BEBB-42E3-A36B-F5779B4D63F4" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
+		"TEMP_0A8A3B38-9EC6-4BF4-9E02-B9FDEC9DD77E" /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
+		"TEMP_114BB21B-D25F-4DA4-B314-10F6AA79D13F" /* SelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionOverlay.swift; sourceTree = "<group>"; };
+		"TEMP_18C6C6B1-692F-44C5-9628-2E7E67906731" /* PencilCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvas.swift; sourceTree = "<group>"; };
+		"TEMP_1F906695-1605-40CD-BEE8-4DEB5071C03F" /* AnnotationCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasView.swift; sourceTree = "<group>"; };
+		"TEMP_3FAE4A60-1DAB-48E0-875C-5EDF8671A7E3" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
+		"TEMP_505A2636-DE4E-40E7-894B-91A386E443C5" /* DrawingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingToolbar.swift; sourceTree = "<group>"; };
+		"TEMP_552F28C5-5B40-44FA-8EA6-F41640BC4BF1" /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		"TEMP_8D553DD4-6F79-4AAE-B345-66E58C438929" /* ShapeSnap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShapeSnap.swift; sourceTree = "<group>"; };
+		"TEMP_9CD48598-6148-4E4B-8B67-84E591C44393" /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		"TEMP_AF112B15-45DD-4570-8293-FF38C43F3E31" /* VibexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibexApp.swift; sourceTree = "<group>"; };
+		"TEMP_E83E7ED5-0D83-44CF-ACF2-6853BB28112B" /* EventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStream.swift; sourceTree = "<group>"; };
+		"TEMP_FA710D1F-7E49-486F-A6D4-5EFC0C1DAFBB" /* CanvasComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasComposer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -53,21 +53,21 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_7D371153-CE68-4053-AECF-55E80E36C650" /* . */ = {
+		"TEMP_8508445D-4866-49D8-81CD-041F0166B076" /* . */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_50695B23-6752-45CC-9D00-2B4265EB58FB" /* AnnotationCanvasView.swift */,
-				"TEMP_8878406D-D382-472F-95FB-431445827801" /* SelectionOverlay.swift */,
-				"TEMP_626B25DE-ECB3-4D59-A5EB-F77B3488F660" /* DrawingToolbar.swift */,
-				"TEMP_2218CE41-47CD-4F5A-A9CB-960FF8CF4E40" /* VibexApp.swift */,
-				"TEMP_029406AB-853D-437D-80CE-E64565C793F4" /* BridgeClient.swift */,
-				"TEMP_1FCCB4B8-995D-43A8-8889-F68AA4EB95B8" /* EventStream.swift */,
-				"TEMP_9AC19119-BD73-4A4C-A106-C66FBF826BDB" /* HarnessView.swift */,
-				"TEMP_67C1AC47-6026-41A5-8DC8-3264F3A2A5E8" /* RootView.swift */,
-				"TEMP_7E2FC649-D5F3-4D69-B4C7-8D3536858EB0" /* ShapeSnap.swift */,
-				"TEMP_375A8B85-3E28-4737-8528-5463B9AA83F4" /* CanvasComposer.swift */,
-				"TEMP_80A2B188-5562-45D0-AF03-6D841B52A638" /* PencilCanvas.swift */,
-				"TEMP_A5A8C8FA-BEBB-42E3-A36B-F5779B4D63F4" /* LivePreviewEditorView.swift */,
+				"TEMP_1F906695-1605-40CD-BEE8-4DEB5071C03F" /* AnnotationCanvasView.swift */,
+				"TEMP_114BB21B-D25F-4DA4-B314-10F6AA79D13F" /* SelectionOverlay.swift */,
+				"TEMP_505A2636-DE4E-40E7-894B-91A386E443C5" /* DrawingToolbar.swift */,
+				"TEMP_AF112B15-45DD-4570-8293-FF38C43F3E31" /* VibexApp.swift */,
+				"TEMP_9CD48598-6148-4E4B-8B67-84E591C44393" /* BridgeClient.swift */,
+				"TEMP_E83E7ED5-0D83-44CF-ACF2-6853BB28112B" /* EventStream.swift */,
+				"TEMP_0A8A3B38-9EC6-4BF4-9E02-B9FDEC9DD77E" /* HarnessView.swift */,
+				"TEMP_552F28C5-5B40-44FA-8EA6-F41640BC4BF1" /* RootView.swift */,
+				"TEMP_8D553DD4-6F79-4AAE-B345-66E58C438929" /* ShapeSnap.swift */,
+				"TEMP_FA710D1F-7E49-486F-A6D4-5EFC0C1DAFBB" /* CanvasComposer.swift */,
+				"TEMP_18C6C6B1-692F-44C5-9628-2E7E67906731" /* PencilCanvas.swift */,
+				"TEMP_3FAE4A60-1DAB-48E0-875C-5EDF8671A7E3" /* LivePreviewEditorView.swift */,
 			);
 			name = .;
 			path = .;
@@ -132,18 +132,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F859850400D34656541512E9 /* AnnotationCanvasView.swift in Sources */,
-				332636FC6ABFFAD7CF672C64 /* BridgeClient.swift in Sources */,
-				76B9E8792AF9CA06FF1DD1D9 /* CanvasComposer.swift in Sources */,
-				A35F9385C91494B4123ED76C /* DrawingToolbar.swift in Sources */,
-				700F65B55D6CB005961D248F /* EventStream.swift in Sources */,
-				DC91D2F069EF46B1715D7950 /* HarnessView.swift in Sources */,
-				49F46A627E6349C65425598E /* LivePreviewEditorView.swift in Sources */,
-				BCB4386F92A21B710F1DE225 /* PencilCanvas.swift in Sources */,
-				6FBC392A1BA575047D86CB2A /* RootView.swift in Sources */,
-				895A8F839EACABAC03161CBE /* SelectionOverlay.swift in Sources */,
-				BF8CD7271CFBBD700A3BC7BF /* ShapeSnap.swift in Sources */,
-				8ACE5D89BD62A0A13FB0FE18 /* VibexApp.swift in Sources */,
+				E38FC85F45CF994BA40B3E93 /* AnnotationCanvasView.swift in Sources */,
+				AEB840A377F9F1105A6835BD /* BridgeClient.swift in Sources */,
+				463F1DF98BD2FAED816F2CB0 /* CanvasComposer.swift in Sources */,
+				766E4C36ED774EA96327FEE7 /* DrawingToolbar.swift in Sources */,
+				D9C28AB54211DE875C5CDF55 /* EventStream.swift in Sources */,
+				D0D59C6989BE704B8B584013 /* HarnessView.swift in Sources */,
+				945E4D49B11F432F4468D18B /* LivePreviewEditorView.swift in Sources */,
+				6943D43F4DAB2D366B7D2790 /* PencilCanvas.swift in Sources */,
+				A31908FE135A74CDCBBE3812 /* RootView.swift in Sources */,
+				9BD63618155C7F26D6A7D256 /* SelectionOverlay.swift in Sources */,
+				0621236CCA70976DE4DC89EC /* ShapeSnap.swift in Sources */,
+				C85ABA3EE2A24B386F3DA63A /* VibexApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
