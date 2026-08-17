@@ -15,7 +15,9 @@ struct LivePreviewEditorView: View {
     @State private var webView = WKWebView(frame: .zero)
     @State private var canvasView = PKCanvasView()
     @State private var drawingMode = false
-    @State private var shapeSnapEnabled = false
+    @State private var shapeSnapEnabled = true
+    @State private var tool = DrawTool()
+    @State private var selection: Set<Int> = []
     @State private var note = ""
     @State private var sending = false
     @State private var clientTaskId = UUID().uuidString
@@ -38,19 +40,29 @@ struct LivePreviewEditorView: View {
                 PencilCanvas(
                     canvasView: canvasView,
                     shapeSnapEnabled: $shapeSnapEnabled,
+                    tool: tool,
                     allowFingerDrawing: allowFingerDrawing,
                     isActive: drawingMode
                 )
-                .allowsHitTesting(drawingMode && questions.isEmpty)
+                .allowsHitTesting(drawingMode && questions.isEmpty && tool.kind != .lasso)
                 .opacity(drawingMode ? 1 : 0)
+
+                if drawingMode && questions.isEmpty && tool.kind == .lasso {
+                    SelectionOverlay(canvasView: canvasView, selection: $selection)
+                }
 
                 if !questions.isEmpty {
                     clarificationLayer(size: geo.size)
                 }
 
-                toolbar
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 12)
+                VStack(spacing: 8) {
+                    toolbar
+                    if drawingMode {
+                        DrawingToolbar(tool: $tool)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 12)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .onChange(of: geo.size) { _ in
@@ -72,6 +84,8 @@ struct LivePreviewEditorView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .onChange(of: tool.kind) { kind in if kind != .lasso { selection = [] } }
+        .onChange(of: drawingMode) { active in if !active { selection = [] } }
     }
 
     private var toolbar: some View {
@@ -344,6 +358,7 @@ struct LivePreviewEditorView: View {
                 activeTaskId = result.taskId
                 currentStatus = result.status
                 canvasView.drawing = PKDrawing()
+                selection = []
                 drawingMode = false
                 note = ""
                 clientTaskId = UUID().uuidString
