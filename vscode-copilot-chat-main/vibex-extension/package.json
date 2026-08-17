@@ -1,0 +1,212 @@
+{
+  "name": "vibex",
+  "displayName": "VIBEX",
+  "description": "iPad와 VS Code에서 같은 VIBEX 프로젝트 및 로컬 에이전트 대화를 이어갑니다.",
+  "version": "0.4.5",
+  "publisher": "vibex",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.115.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "main": "./dist/extension.js",
+  "enabledApiProposals": [
+    "chatSessionsProvider",
+    "chatParticipantAdditions",
+    "chatParticipantPrivate",
+    "chatProvider",
+    "languageModelThinkingPart"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "chatSessions": [
+      {
+        "type": "vibex",
+        "name": "vibex",
+        "displayName": "VIBEX",
+        "description": "로컬 Codex / Claude Code 에이전트를 VIBEX 대화 하나에서 함께 사용합니다.",
+        "icon": {
+          "light": "media/vibex-light.svg",
+          "dark": "media/vibex-dark.svg"
+        },
+        "order": 4,
+        "welcomeTitle": "VIBEX",
+        "welcomeMessage": "iPad와 VS Code가 같은 대화를 공유합니다. 모델 선택기로 Codex와 Claude Code를 turn마다 바꿔 쓸 수 있습니다.",
+        "inputPlaceholder": "VIBEX에 요청하세요. `@경로`로 프로젝트 파일을 참조할 수 있습니다.",
+        "requiresCustomModels": true,
+        "canDelegate": true,
+        "capabilities": {
+          "supportsFileAttachments": true,
+          "supportsImageAttachments": true
+        }
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "vibex",
+        "displayName": "VIBEX",
+        "when": "false"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vibex.newSession",
+        "title": "새 세션 시작",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.openPanel",
+        "title": "패널 열기",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.panel.new",
+        "title": "새 대화",
+        "category": "VIBEX",
+        "icon": "$(add)"
+      },
+      {
+        "command": "vibex.panel.history",
+        "title": "대화 목록",
+        "category": "VIBEX",
+        "icon": "$(history)"
+      },
+      {
+        "command": "vibex.sessions.rename",
+        "title": "대화 이름 변경",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.sessions.archive",
+        "title": "대화 보관",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.openReview",
+        "title": "변경 사항 검토",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.undoTask",
+        "title": "작업 실행 취소",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.configureBackend",
+        "title": "백엔드 폴더 설정",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.configureTailscale",
+        "title": "iPad용 Tailscale 게시",
+        "category": "VIBEX"
+      },
+      {
+        "command": "vibex.showLogs",
+        "title": "로그 보기",
+        "category": "VIBEX"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "vibex.sessions.rename",
+          "when": "false"
+        },
+        {
+          "command": "vibex.sessions.archive",
+          "when": "false"
+        },
+        {
+          "command": "vibex.openReview",
+          "when": "false"
+        },
+        {
+          "command": "vibex.undoTask",
+          "when": "false"
+        },
+        {
+          "command": "vibex.panel.new",
+          "when": "false"
+        },
+        {
+          "command": "vibex.panel.history",
+          "when": "false"
+        }
+      ],
+      "chat/chatSessions": [
+        {
+          "command": "vibex.sessions.rename",
+          "when": "chatSessionType == vibex",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "vibex.sessions.archive",
+          "when": "chatSessionType == vibex",
+          "group": "1_edit@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "vibex.panel.new",
+          "when": "view == vibex.panel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vibex.panel.history",
+          "when": "view == vibex.panel",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VIBEX",
+      "properties": {
+        "vibex.backendPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "자동 탐색이 실패할 때 사용할 VIBEX backend 폴더의 절대 경로입니다."
+        },
+        "vibex.tailscaleBinary": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "PATH에서 찾지 못할 때 사용할 tailscale CLI 절대 경로입니다."
+        },
+        "vibex.tailscaleServePort": {
+          "type": "number",
+          "default": 8788,
+          "minimum": 1024,
+          "maximum": 65535,
+          "scope": "machine",
+          "description": "iPad용 Tailscale Serve HTTP 포트입니다."
+        }
+      }
+    },
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "vibexPanelContainer",
+          "title": "VIBEX",
+          "icon": "media/vibex.svg"
+        }
+      ]
+    },
+    "views": {
+      "vibexPanelContainer": [
+        {
+          "id": "vibex.panel",
+          "type": "webview",
+          "name": "VIBEX",
+          "icon": "media/vibex.svg"
+        }
+      ]
+    }
+  }
+}
