@@ -329,7 +329,14 @@ class VibexBridge {
     this.log(`[backend] 자동 시작: ${backend}`);
     const child = childProcess.spawn(
       python,
-      ["-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", "8787"],
+      // --no-proxy-headers: Tailscale Serve가 붙이는 X-Forwarded-For를 uvicorn이
+      // 신뢰해 request.client를 원격 IP로 덮어쓰면, loopback 전제로 동작하는
+      // verify_device가 Serve 경유 요청을 전부 401로 막는다.
+      [
+        "-m", "uvicorn", "src.main:app",
+        "--host", "127.0.0.1", "--port", "8787",
+        "--no-proxy-headers",
+      ],
       {
         cwd: backend,
         env: {

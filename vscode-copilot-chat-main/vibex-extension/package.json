@@ -2,7 +2,7 @@
   "name": "vibex",
   "displayName": "VIBEX",
   "description": "iPad와 VS Code에서 같은 VIBEX 프로젝트 및 로컬 에이전트 대화를 이어갑니다.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "vibex",
   "license": "MIT",
   "engines": {
