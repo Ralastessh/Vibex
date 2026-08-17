@@ -1,5 +1,5 @@
 from __future__ import annotations
-from src.agents.contract import OUTPUT_CONTRACT
+from src.agents.contract import OUTPUT_CONTRACT, output_contract
 
 CONSTRAINTS = (
     "기존 프로젝트 구조를 유지한다.",
@@ -8,7 +8,10 @@ CONSTRAINTS = (
     "기존 사용자의 미커밋 변경사항을 보존한다.",
     "중요한 제품 결정이 필요한 경우 추측하지 말고 질문한다.")
 
-_SESSION_CONTEXT = "현재 프로젝트에 연결된 LLM 세션에서 작업한다."
+_SESSION_CONTEXT = (
+    "현재 프로젝트에 연결된 PC의 LLM CLI 세션에서 작업한다. "
+    "이미지 해석도 그 로컬 세션 안에서 수행한다."
+)
 
 
 def build(
@@ -17,6 +20,7 @@ def build(
     resumed: bool,
     context: str | None = None,
     test_commands: list[str] | None = None,
+    origin: str = "ipad",
 ) -> str:
     """작업 프롬프트를 제작
     test_commands가 비어 있으면 테스트 실행을 지시하지 않음. 실행할 수 없는 것을
@@ -44,7 +48,7 @@ def build(
 
     lines.append("제약:")
     lines += [f"- {c}" for c in constraints]
-    lines += ["", OUTPUT_CONTRACT]
+    lines += ["", output_contract(origin=origin)]
     return "\n".join(lines)
 
 
@@ -62,6 +66,16 @@ def build_answer(question_text: str, answer_label: str) -> str:
             OUTPUT_CONTRACT,
         ]
     )
+
+
+def build_text(user_message: str) -> str:
+    """일반 채팅은 사용자가 쓴 문장을 코드 작업 계약으로 감싸지 않는다.
+
+    Codex/Claude 자체가 명시적인 수정 요청은 에이전트 작업으로 처리한다. 반대로
+    인사·질문·설명 요청에는 파일 탐색, 수정, 테스트, bridge JSON을 강제하지 않아
+    평범한 채팅처럼 짧게 답할 수 있다. 구조화 계약은 iPad 드로잉 흐름에만 둔다.
+    """
+    return user_message.strip()
 
 
 def build_visual(*, typed_note: str | None, test_commands: list[str] | None) -> str:

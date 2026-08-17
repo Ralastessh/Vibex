@@ -1,6 +1,7 @@
 # CLAUDE.md §18 — 비밀키와 로컬 설정은 저장소에 넣지 않는다
 .env
 projects.local.json
+conversations.local.json
 logs/
 
 # Python

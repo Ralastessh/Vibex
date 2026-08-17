@@ -45,7 +45,7 @@ STATUS_MESSAGES = {
     "interpreting": "드로잉을 해석하고 있습니다.",
     "awaiting_confirmation": "해석 결과를 확인해 주세요.",
     "resolving_session": "프로젝트 세션을 찾고 있습니다.",
-    "running_agent": "코드를 수정하고 있습니다.",
+    "running_agent": "요청을 처리하고 있습니다.",
     "testing": "테스트를 실행하고 있습니다.",
     "completed": "완료되었습니다.",
     "failed": "실패했습니다.",

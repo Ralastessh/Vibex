@@ -1,0 +1,89 @@
+{
+  "name": "vibex",
+  "displayName": "Vibex",
+  "description": "iPad와 VS Code에서 같은 Vibex 프로젝트 및 LLM 대화를 이어갑니다.",
+  "version": "0.9.5",
+  "publisher": "vibex-local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.96.2"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "vibex",
+    "codex",
+    "claude",
+    "ipad"
+  ],
+  "activationEvents": [
+    "onView:vibex.panel",
+    "onCommand:vibex.open",
+    "onCommand:vibex.configure"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibex.open",
+        "title": "Open Vibex",
+        "category": "Vibex"
+      },
+      {
+        "command": "vibex.configure",
+        "title": "Configure Local Backend",
+        "category": "Vibex"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "vibexSecondaryViewContainer",
+          "title": "VIBEX",
+          "icon": "media/vibex.svg"
+        }
+      ]
+    },
+    "views": {
+      "vibexSecondaryViewContainer": [
+        {
+          "id": "vibex.panel",
+          "type": "webview",
+          "name": "VIBEX"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Vibex",
+      "properties": {
+        "vibex.backendPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "자동 탐색이 실패할 때 사용할 Vibex backend 폴더의 절대 경로입니다."
+        },
+        "vibex.tailscaleBinary": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "PATH에서 찾지 못할 때 사용할 tailscale CLI 절대 경로입니다."
+        },
+        "vibex.tailscaleServePort": {
+          "type": "number",
+          "default": 8788,
+          "minimum": 1024,
+          "maximum": 65535,
+          "scope": "machine",
+          "description": "iPad용 Tailscale Serve HTTP 포트입니다."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/extension.js && node --check media/main.js && node --test tests/*.test.js"
+  },
+  "license": "MIT"
+}

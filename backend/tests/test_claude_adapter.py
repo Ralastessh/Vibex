@@ -52,6 +52,12 @@ def envelope(**overrides) -> dict:
         "result": f"작업했습니다.\n\n```bridge\n{json.dumps(REPORT)}\n```",
         "permission_denials": [],
         "total_cost_usd": 0.04,
+        "model": "claude-sonnet-4-6",
+        "usage": {
+            "input_tokens": 100,
+            "cache_read_input_tokens": 25,
+            "output_tokens": 40,
+        },
     }
     base.update(overrides)
     return base
@@ -119,6 +125,38 @@ async def test_command_uses_the_verified_flags(tmp_path, repo):
     assert args[args.index("--max-budget-usd") + 1] == "1.5"
 
 
+async def test_command_receives_model_and_effort(tmp_path, repo):
+    binary, args_file = fake_claude(tmp_path, envelope())
+    await ClaudeCodeAdapter(binary=binary).resume_and_run(
+        repo, "sess-1", "프롬프트", model="sonnet", effort="high"
+    )
+    args = json.loads(args_file.read_text())
+    assert args[args.index("--model") + 1] == "sonnet"
+    assert args[args.index("--effort") + 1] == "high"
+
+
+@pytest.mark.parametrize(
+    ("approval_mode", "expected"),
+    [
+        ("default", ["--permission-mode", "acceptEdits"]),
+        ("autopilot", ["--permission-mode", "auto"]),
+        ("bypass", ["--dangerously-skip-permissions"]),
+    ],
+)
+async def test_approval_mode_uses_a_real_claude_permission_flag(
+    tmp_path, repo, approval_mode, expected
+):
+    binary, args_file = fake_claude(tmp_path, envelope())
+    await ClaudeCodeAdapter(binary=binary).resume_and_run(
+        repo, None, "p", approval_mode=approval_mode
+    )
+    args = json.loads(args_file.read_text())
+    if len(expected) == 1:
+        assert expected[0] in args
+    else:
+        assert args[args.index(expected[0]) + 1] == expected[1]
+
+
 async def test_no_test_commands_means_no_bash_allowance(tmp_path, repo):
     """§18.5 — 허용 목록이 없으면 Bash를 열지 않는다."""
     binary, args_file = fake_claude(tmp_path, envelope())
@@ -157,6 +195,10 @@ async def test_successful_run(tmp_path, repo):
     assert result.session_id == "sess-123"
     assert result.report.summary == "border-radius를 24px로 바꿨다."
     assert result.cost_usd == 0.04
+    assert result.resolved_model == "claude-sonnet-4-6"
+    assert result.usage.input_tokens == 100
+    assert result.usage.cached_input_tokens == 25
+    assert result.usage.total_tokens == 140
 
 
 async def test_warning_line_before_json_is_tolerated(tmp_path, repo):

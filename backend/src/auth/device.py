@@ -1,32 +1,83 @@
 from __future__ import annotations
+
+import ipaddress
 import logging
 import secrets
+
 from fastapi import Depends, Header, HTTPException, Request, status
 
 logger = logging.getLogger("bridge.auth")
 
-def verify_device_token(
-    request: Request, authorization: str | None = Header(default=None)
+
+def _is_loopback(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _allowed_tailscale_user(request: Request, login: str) -> bool:
+    allowed = request.app.state.settings.tailscale_user_allowlist
+    return not allowed or login.strip().lower() in allowed
+
+
+def verify_device(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    tailscale_user_login: str | None = Header(
+        default=None, alias="Tailscale-User-Login"
+    ),
 ) -> None:
-    """Authorization: Bearer <device-token>로 검증
-    타이밍 공격을 피하기 위해 compare_digest를 쓰고 실패 시 기록
+    """로컬 VS Code 또는 Tailscale Serve를 통과한 요청만 허용한다.
+
+    백엔드는 127.0.0.1에만 바인딩하는 것이 전제다. Tailscale Serve가 원격
+    요청을 localhost로 프록시하고 검증된 사용자 헤더를 붙인다. 예전 iPad
+    빌드는 선택적으로 BRIDGE_DEVICE_TOKEN으로 계속 접근할 수 있다.
     """
-    expected = request.app.state.settings.require_device_token()
 
+    client = request.client.host if request.client else "unknown"
+    if _is_loopback(client):
+        if tailscale_user_login and not _allowed_tailscale_user(
+            request, tailscale_user_login
+        ):
+            _reject(request, f"허용되지 않은 Tailscale 사용자: {tailscale_user_login}")
+        return
+
+    # Serve 이외의 네트워크 경로에서 identity header를 신뢰하면 누구나 헤더를
+    # 위조할 수 있다. 반드시 localhost 프록시를 통과한 경우에만 위에서 처리한다.
+    if tailscale_user_login:
+        _reject(request, "localhost 밖에서 전달된 Tailscale 신원 헤더")
+
+    expected = request.app.state.settings.device_token.strip()
     scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        _reject(request, "인증 헤더 없음 또는 형식 오류")
+    if (
+        expected
+        and scheme.lower() == "bearer"
+        and token
+        and secrets.compare_digest(token.strip(), expected)
+    ):
+        logger.info("레거시 기기 토큰으로 접근했습니다: %s", client)
+        return
 
-    if not secrets.compare_digest(token.strip(), expected):
-        _reject(request, "토큰 불일치")
+    _reject(request, "Tailscale Serve 또는 레거시 기기 토큰 인증 필요")
+
 
 def _reject(request: Request, reason: str) -> None:
     client = request.client.host if request.client else "unknown"
-    logger.warning("인증 실패 (%s): %s %s — %s", client, request.method, request.url.path, reason)
+    logger.warning(
+        "인증 실패 (%s): %s %s — %s",
+        client,
+        request.method,
+        request.url.path,
+        reason,
+    )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="인증이 필요합니다.",
-        headers={"WWW-Authenticate": "Bearer"},
+        detail="Tailscale에 연결된 허용 기기에서 접속해 주세요.",
+        headers={"WWW-Authenticate": "Tailscale"},
     )
 
-RequireDevice = Depends(verify_device_token)
+
+RequireDevice = Depends(verify_device)

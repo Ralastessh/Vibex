@@ -3,15 +3,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.agents.base import AgentRunResult
+from src.agents.base import AgentProgress, AgentRunResult, ProgressCallback
+from src.agents.codex_app_server import (
+    CodexAppServerClient,
+    CodexAppServerError,
+    CodexAppServerUnavailable,
+    error_text,
+)
 from src.agents.contract import ContractError, extract
+from src.tasks.models import ActivityItem, AgentUsage, ApprovalMode
 
 logger = logging.getLogger("bridge.agents.codex")
+
+THREAD_SOURCE_KINDS = ["vscode", "cli", "appServer"]
 
 
 def sessions_root() -> Path:
@@ -47,10 +55,195 @@ def _session_metadata(path: Path) -> CodexSession | None:
     return None
 
 
-def _error_text(error: Any) -> str:
-    if isinstance(error, dict):
-        return str(error.get("message") or error.get("data") or error)
-    return str(error)
+class CodexThreadOutsideProjectError(LookupError):
+    """선택한 thread가 요청한 프로젝트 cwd에 속하지 않는다."""
+
+
+def _text(value: Any) -> str:
+    """App Server의 문자열/배열 content를 사람이 읽을 수 있는 텍스트로 합친다."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(filter(None, (_text(item) for item in value)))
+    if isinstance(value, dict):
+        for key in ("text", "summary", "content", "message", "error", "result"):
+            if key in value:
+                rendered = _text(value[key])
+                if rendered:
+                    return rendered
+    return ""
+
+
+class _ProgressCollector:
+    """App Server 알림을 Task가 보관할 누적 스냅샷으로 정규화한다."""
+
+    def __init__(self, callback: ProgressCallback | None) -> None:
+        self._callback = callback
+        self._messages: dict[str, str] = {}
+        self._items: dict[str, ActivityItem] = {}
+        self._thread_id: str | None = None
+        self._turn_id: str | None = None
+        self._usage: AgentUsage | None = None
+
+    @property
+    def agent_reply(self) -> str:
+        return "\n\n".join(text for text in self._messages.values() if text)
+
+    @property
+    def activity_items(self) -> list[ActivityItem]:
+        return [item.model_copy(deep=True) for item in self._items.values()]
+
+    @property
+    def usage(self) -> AgentUsage | None:
+        return self._usage.model_copy(deep=True) if self._usage is not None else None
+
+    def set_context(self, thread_id: str, turn_id: str) -> None:
+        self._thread_id = thread_id
+        self._turn_id = turn_id
+        self._emit()
+
+    def handle(self, event: dict[str, Any]) -> None:
+        method = str(event.get("method") or "")
+        params = event.get("params") or {}
+
+        if method == "thread/tokenUsage/updated":
+            usage = (params.get("tokenUsage") or {}).get("last") or {}
+            self._usage = _agent_usage(usage)
+            self._emit()
+            return
+        if method == "rawResponse/completed":
+            usage = params.get("usage") or {}
+            if usage:
+                self._usage = _agent_usage(usage)
+                self._emit()
+            return
+
+        if method in {"item/started", "item/completed"}:
+            item = params.get("item") or {}
+            item_id = str(item.get("id") or params.get("itemId") or "")
+            item_type = str(item.get("type") or "")
+            if not item_id or not item_type:
+                return
+            if item_type == "agentMessage":
+                self._messages[item_id] = str(item.get("text") or "")
+                self._emit()
+                return
+            if item_type == "userMessage":
+                return
+            self._set_activity(
+                item_id,
+                item_type,
+                item,
+                lifecycle_status=(
+                    "completed" if method == "item/completed" else "inProgress"
+                ),
+            )
+            self._emit()
+            return
+
+        item_id = str(params.get("itemId") or "")
+        delta = str(params.get("delta") or "")
+        if method == "item/agentMessage/delta" and item_id:
+            self._messages.setdefault(item_id, "")
+            self._messages[item_id] += delta
+            self._emit()
+            return
+
+        if method in {
+            "item/reasoning/summaryTextDelta",
+            "item/reasoning/textDelta",
+            "item/reasoning/summaryPartAdded",
+        } and item_id:
+            current = self._activity(item_id, "reasoning")
+            separator = (
+                "\n\n"
+                if method.endswith("summaryPartAdded") and current.text
+                else ""
+            )
+            self._items[item_id] = current.model_copy(
+                update={"text": current.text + separator + delta}
+            )
+            self._emit()
+            return
+
+        if method == "item/commandExecution/outputDelta" and item_id:
+            current = self._activity(item_id, "commandExecution")
+            self._items[item_id] = current.model_copy(
+                update={"output": current.output + delta}
+            )
+            self._emit()
+            return
+
+        if method == "item/plan/delta" and item_id:
+            current = self._activity(item_id, "plan")
+            self._items[item_id] = current.model_copy(
+                update={"text": current.text + delta}
+            )
+            self._emit()
+
+    def _activity(self, item_id: str, item_type: str) -> ActivityItem:
+        current = self._items.get(item_id)
+        if current is not None:
+            return current
+        current = ActivityItem(itemId=item_id, type=item_type)
+        self._items[item_id] = current
+        return current
+
+    def _set_activity(
+        self,
+        item_id: str,
+        item_type: str,
+        data: dict[str, Any],
+        *,
+        lifecycle_status: str,
+    ) -> None:
+        current = self._activity(item_id, item_type)
+        rendered = ""
+        if item_type == "reasoning":
+            rendered = _text(data.get("summary")) or _text(data.get("content"))
+        elif item_type == "plan":
+            rendered = _text(data.get("text"))
+        elif item_type in {
+            "mcpToolCall",
+            "dynamicToolCall",
+            "collabToolCall",
+            "webSearch",
+            "imageView",
+            "enteredReviewMode",
+            "exitedReviewMode",
+        }:
+            rendered = (
+                _text(data.get("result"))
+                or _text(data.get("error"))
+                or _text(data.get("review"))
+            )
+        output = _text(data.get("aggregatedOutput")) or current.output
+        self._items[item_id] = ActivityItem(
+            itemId=item_id,
+            type=item_type,
+            status=str(data.get("status") or lifecycle_status),
+            text=rendered or current.text,
+            output=output,
+            data=dict(data),
+        )
+
+    def _emit(self) -> None:
+        if self._callback is None:
+            return
+        try:
+            self._callback(
+                AgentProgress(
+                    agent_reply=self.agent_reply,
+                    activity_items=self.activity_items,
+                    threadId=self._thread_id,
+                    turnId=self._turn_id,
+                    usage=self.usage,
+                )
+            )
+        except Exception:
+            logger.debug("Codex 진행 이벤트 전달 실패", exc_info=True)
 
 
 class CodexCLIAdapter:
@@ -59,6 +252,12 @@ class CodexCLIAdapter:
     def __init__(self, binary: str = "codex", *, timeout_seconds: float = 1800) -> None:
         self._binary = binary
         self._timeout = timeout_seconds
+
+    def _command(self, speed_mode: str | None = None) -> list[str]:
+        command = [self._binary, "app-server", "--stdio"]
+        if speed_mode == "fast":
+            command += ["-c", 'service_tier="fast"', "--enable", "fast_mode"]
+        return command
 
     async def find_latest_session(self, repo_path: Path) -> str | None:
         """정확한 cwd의 세션을 찾되 VS Code 세션을 우선한다."""
@@ -85,45 +284,137 @@ class CodexCLIAdapter:
 
         return await asyncio.to_thread(scan)
 
-    async def _send(
-        self, process: asyncio.subprocess.Process, message: dict[str, Any]
-    ) -> None:
-        assert process.stdin is not None
-        process.stdin.write(
-            (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
-        )
-        await process.stdin.drain()
-
-    async def _read(
-        self, process: asyncio.subprocess.Process, *, deadline: float
-    ) -> dict[str, Any]:
-        assert process.stdout is not None
-        remaining = deadline - asyncio.get_running_loop().time()
-        if remaining <= 0:
-            raise asyncio.TimeoutError
-        line = await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
-        if not line:
-            raise EOFError("Codex App Server가 응답을 보내기 전에 종료되었습니다.")
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("Codex App Server가 잘못된 JSON을 보냈습니다.") from exc
-
-    async def _response(
+    def _client(
         self,
-        process: asyncio.subprocess.Process,
-        request_id: int,
+        repo_path: Path,
         *,
-        deadline: float,
-        notifications: list[dict[str, Any]],
+        speed_mode: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> CodexAppServerClient:
+        return CodexAppServerClient(
+            self._command(speed_mode),
+            cwd=repo_path,
+            timeout_seconds=(
+                self._timeout if timeout_seconds is None else timeout_seconds
+            ),
+        )
+
+    @staticmethod
+    def _validate_thread_cwd(thread: dict[str, Any], repo_path: Path) -> None:
+        raw_cwd = thread.get("cwd")
+        if not isinstance(raw_cwd, str) or not raw_cwd:
+            raise CodexThreadOutsideProjectError("thread cwd가 없습니다.")
+        try:
+            thread_cwd = Path(raw_cwd).expanduser().resolve()
+        except (OSError, ValueError) as exc:
+            raise CodexThreadOutsideProjectError("thread cwd가 올바르지 않습니다.") from exc
+        if thread_cwd != repo_path.expanduser().resolve():
+            raise CodexThreadOutsideProjectError(
+                "선택한 Codex thread가 이 프로젝트에 속하지 않습니다."
+            )
+
+    async def list_threads(
+        self,
+        repo_path: Path,
+        *,
+        cursor: str | None = None,
+        limit: int = 30,
+        search_term: str | None = None,
+        archived: bool = False,
     ) -> dict[str, Any]:
-        while True:
-            message = await self._read(process, deadline=deadline)
-            if message.get("id") == request_id:
-                if "error" in message:
-                    raise RuntimeError(_error_text(message["error"]))
-                return message.get("result") or {}
-            notifications.append(message)
+        """VS Code·CLI·Vibex App Server thread를 정확한 cwd로 조회한다."""
+        repo_path = repo_path.expanduser().resolve()
+        params: dict[str, Any] = {
+            "cursor": cursor,
+            "limit": limit,
+            "sortKey": "recency_at",
+            "sortDirection": "desc",
+            "sourceKinds": THREAD_SOURCE_KINDS,
+            "archived": archived,
+            "cwd": str(repo_path),
+        }
+        if search_term:
+            params["searchTerm"] = search_term
+        async with self._client(
+            repo_path, timeout_seconds=min(self._timeout, 30)
+        ) as client:
+            result = await client.request("thread/list", params)
+
+        data = result.get("data")
+        if not isinstance(data, list):
+            raise CodexAppServerError("thread/list 응답에 data 목록이 없습니다.")
+        # cwd 필터는 App Server에서도 걸지만 응답 경계에서 한 번 더
+        # 검증해 타 프로젝트 이력이 섞일 가능성을 막는다.
+        filtered: list[dict[str, Any]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                self._validate_thread_cwd(item, repo_path)
+            except CodexThreadOutsideProjectError:
+                continue
+            filtered.append(item)
+        return {**result, "data": filtered}
+
+    async def _read_thread(
+        self,
+        client: CodexAppServerClient,
+        repo_path: Path,
+        thread_id: str,
+        *,
+        include_turns: bool,
+    ) -> dict[str, Any]:
+        result = await client.request(
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": include_turns},
+        )
+        thread = result.get("thread")
+        if not isinstance(thread, dict):
+            raise CodexAppServerError("thread/read 응답에 thread가 없습니다.")
+        self._validate_thread_cwd(thread, repo_path)
+        return thread
+
+    async def read_thread(
+        self,
+        repo_path: Path,
+        thread_id: str,
+        *,
+        include_turns: bool = True,
+    ) -> dict[str, Any]:
+        repo_path = repo_path.expanduser().resolve()
+        async with self._client(
+            repo_path, timeout_seconds=min(self._timeout, 30)
+        ) as client:
+            return await self._read_thread(
+                client,
+                repo_path,
+                thread_id,
+                include_turns=include_turns,
+            )
+
+    async def set_thread_name(
+        self, repo_path: Path, thread_id: str, name: str
+    ) -> None:
+        repo_path = repo_path.expanduser().resolve()
+        async with self._client(
+            repo_path, timeout_seconds=min(self._timeout, 30)
+        ) as client:
+            await self._read_thread(
+                client, repo_path, thread_id, include_turns=False
+            )
+            await client.request(
+                "thread/name/set", {"threadId": thread_id, "name": name}
+            )
+
+    async def archive_thread(self, repo_path: Path, thread_id: str) -> None:
+        repo_path = repo_path.expanduser().resolve()
+        async with self._client(
+            repo_path, timeout_seconds=min(self._timeout, 30)
+        ) as client:
+            await self._read_thread(
+                client, repo_path, thread_id, include_turns=False
+            )
+            await client.request("thread/archive", {"threadId": thread_id})
 
     async def resume_and_run(
         self,
@@ -133,144 +424,131 @@ class CodexCLIAdapter:
         *,
         test_commands: list[str] | None = None,
         image_paths: list[Path] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+        speed_mode: str | None = None,
+        approval_mode: ApprovalMode = "default",
+        on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
         del test_commands  # 허용 테스트 명령은 prompt에 포함된다.
-        if shutil.which(self._binary) is None and not Path(self._binary).exists():
-            return AgentRunResult(error=f"Codex CLI 실행 파일을 찾을 수 없습니다: {self._binary}")
-
         repo_path = repo_path.expanduser().resolve()
-        process = await asyncio.create_subprocess_exec(
-            self._binary,
-            "app-server",
-            "--stdio",
-            cwd=repo_path,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        assert process.stderr is not None
-        # App Server 로그가 파이프 버퍼를 채워 응답 처리를 막지 않게 계속 비운다.
-        stderr_task = asyncio.create_task(process.stderr.read())
-        deadline = asyncio.get_running_loop().time() + self._timeout
-        notifications: list[dict[str, Any]] = []
-        messages: list[str] = []
-        active_session_id = session_id
+        progress = _ProgressCollector(on_progress)
+        active_thread_id = session_id
+        active_turn_id: str | None = None
+        active_model = model
+        approval = _approval_settings(approval_mode, repo_path)
 
         try:
-            await self._send(
-                process,
-                {
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                        "clientInfo": {
-                            "name": "vibex",
-                            "title": "Vibex",
-                            "version": "0.1.0",
-                        }
-                    },
-                },
-            )
-            await self._response(
-                process, 1, deadline=deadline, notifications=notifications
-            )
-            await self._send(process, {"method": "initialized", "params": {}})
-
-            if session_id:
-                await self._send(
-                    process,
-                    {
-                        "id": 2,
-                        "method": "thread/resume",
-                        "params": {
+            # 작업마다 독립된 App Server transport를 사용하되, handshake와 JSONL
+            # 처리는 목록/읽기 API와 완전히 같은 client 구현을 공유한다.
+            async with self._client(repo_path, speed_mode=speed_mode) as client:
+                deadline = client.deadline()
+                if session_id:
+                    thread_result = await client.request(
+                        "thread/resume",
+                        {
                             "threadId": session_id,
                             "cwd": str(repo_path),
-                            "approvalPolicy": "never",
+                            "approvalPolicy": approval["approvalPolicy"],
+                            "approvalsReviewer": approval["approvalsReviewer"],
+                            "sandbox": approval["sandbox"],
                         },
-                    },
-                )
-            else:
-                await self._send(
-                    process,
-                    {
-                        "id": 2,
-                        "method": "thread/start",
-                        "params": {
+                        deadline=deadline,
+                    )
+                else:
+                    thread_result = await client.request(
+                        "thread/start",
+                        {
                             "cwd": str(repo_path),
-                            "approvalPolicy": "never",
-                            "sandbox": "workspace-write",
-                            "runtimeWorkspaceRoots": [str(repo_path)],
+                            "approvalPolicy": approval["approvalPolicy"],
+                            "approvalsReviewer": approval["approvalsReviewer"],
+                            "sandbox": approval["sandbox"],
                             "ephemeral": False,
                         },
-                    },
-                )
-
-            thread_result = await self._response(
-                process, 2, deadline=deadline, notifications=notifications
-            )
-            thread = thread_result.get("thread") or {}
-            active_session_id = str(thread.get("id") or active_session_id or "") or None
-            if active_session_id is None:
-                raise RuntimeError("Codex가 thread id를 반환하지 않았습니다.")
-
-            inputs: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-            inputs += [
-                {"type": "localImage", "path": str(path.expanduser().resolve())}
-                for path in (image_paths or [])
-            ]
-            await self._send(
-                process,
-                {
-                    "id": 3,
-                    "method": "turn/start",
-                    "params": {
-                        "threadId": active_session_id,
-                        "input": inputs,
-                        "cwd": str(repo_path),
-                        "approvalPolicy": "never",
-                        "sandboxPolicy": {
-                            "type": "workspaceWrite",
-                            "writableRoots": [str(repo_path)],
-                            "networkAccess": False,
-                        },
-                    },
-                },
-            )
-            turn_result = await self._response(
-                process, 3, deadline=deadline, notifications=notifications
-            )
-            turn_id = str((turn_result.get("turn") or {}).get("id") or "")
-
-            while True:
-                event = notifications.pop(0) if notifications else await self._read(
-                    process, deadline=deadline
-                )
-                method = event.get("method")
-                params = event.get("params") or {}
-                if params.get("threadId") not in {None, active_session_id}:
-                    continue
-                if method == "item/completed":
-                    item = params.get("item") or {}
-                    if item.get("type") == "agentMessage" and item.get("text"):
-                        messages.append(str(item["text"]))
-                elif method == "turn/completed":
-                    turn = params.get("turn") or {}
-                    if turn_id and turn.get("id") not in {None, turn_id}:
-                        continue
-                    status = turn.get("status")
-                    if status == "completed":
-                        break
-                    raise RuntimeError(
-                        _error_text(turn.get("error") or f"turn 상태: {status}")
+                        deadline=deadline,
                     )
 
-            return self._result(active_session_id, messages[-1] if messages else "")
+                thread = thread_result.get("thread") or {}
+                active_model = str(
+                    thread.get("model") or thread_result.get("model") or active_model or ""
+                ) or None
+                active_thread_id = (
+                    str(thread.get("id") or active_thread_id or "") or None
+                )
+                if active_thread_id is None:
+                    raise CodexAppServerError(
+                        "Codex가 thread id를 반환하지 않았습니다."
+                    )
+
+                inputs: list[dict[str, Any]] = [
+                    {"type": "text", "text": prompt}
+                ]
+                inputs += [
+                    {
+                        "type": "localImage",
+                        "path": str(path.expanduser().resolve()),
+                    }
+                    for path in (image_paths or [])
+                ]
+                turn_params: dict[str, Any] = {
+                    "threadId": active_thread_id,
+                    "input": inputs,
+                    "cwd": str(repo_path),
+                    "approvalPolicy": approval["approvalPolicy"],
+                    "approvalsReviewer": approval["approvalsReviewer"],
+                    "sandboxPolicy": approval["sandboxPolicy"],
+                }
+                if model:
+                    turn_params["model"] = model
+                if effort:
+                    turn_params["effort"] = effort
+                turn_result = await client.request(
+                    "turn/start", turn_params, deadline=deadline
+                )
+                active_turn_id = (
+                    str((turn_result.get("turn") or {}).get("id") or "") or None
+                )
+                progress.set_context(active_thread_id, active_turn_id or "")
+
+                while True:
+                    event = await client.receive(deadline=deadline)
+                    method = event.get("method")
+                    params = event.get("params") or {}
+                    if params.get("threadId") not in {None, active_thread_id}:
+                        continue
+                    progress.handle(event)
+                    if method == "turn/completed":
+                        turn = params.get("turn") or {}
+                        if active_turn_id and turn.get("id") not in {
+                            None,
+                            active_turn_id,
+                        }:
+                            continue
+                        status = turn.get("status")
+                        if status == "completed":
+                            break
+                        raise CodexAppServerError(
+                            error_text(
+                                turn.get("error") or f"turn 상태: {status}"
+                            )
+                        )
+
+            return self._result(
+                active_thread_id,
+                progress.agent_reply,
+                turn_id=active_turn_id,
+                activity_items=progress.activity_items,
+                usage=progress.usage,
+                resolved_model=active_model,
+            )
         except asyncio.TimeoutError:
             return AgentRunResult(
-                session_id=active_session_id,
+                session_id=active_thread_id,
+                thread_id=active_thread_id,
+                turn_id=active_turn_id,
                 error=f"Codex가 {self._timeout:.0f}초 안에 작업을 끝내지 않았습니다.",
             )
-        except (EOFError, OSError, RuntimeError) as exc:
+        except (CodexAppServerError, CodexAppServerUnavailable, OSError) as exc:
             detail = str(exc)
             if "active writer" in detail or "thread-store conflict" in detail:
                 detail = (
@@ -279,32 +557,88 @@ class CodexCLIAdapter:
                     "Vibex는 대화를 보존하기 위해 새 세션으로 우회하지 않았습니다."
                 )
             return AgentRunResult(
-                session_id=active_session_id,
+                session_id=active_thread_id,
+                thread_id=active_thread_id,
+                turn_id=active_turn_id,
                 error=f"Codex 세션을 실행하지 못했습니다: {detail}",
             )
-        finally:
-            if process.returncode is None:
-                try:
-                    process.terminate()
-                except ProcessLookupError:
-                    pass
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=3)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-            await stderr_task
 
-    def _result(self, session_id: str, raw_output: str) -> AgentRunResult:
+    def _result(
+        self,
+        session_id: str,
+        raw_output: str,
+        *,
+        turn_id: str | None = None,
+        activity_items: list[ActivityItem] | None = None,
+        usage: AgentUsage | None = None,
+        resolved_model: str | None = None,
+    ) -> AgentRunResult:
         try:
             report = extract(raw_output)
         except ContractError as exc:
             return AgentRunResult(
-                session_id=session_id, raw_output=raw_output, error=str(exc)
+                session_id=session_id,
+                thread_id=session_id,
+                turn_id=turn_id,
+                raw_output=raw_output,
+                activity_items=activity_items or [],
+                usage=usage,
+                resolvedModel=resolved_model,
+                error=str(exc),
             )
         return AgentRunResult(
             session_id=session_id,
+            thread_id=session_id,
+            turn_id=turn_id,
             report=report,
             ok=True,
             raw_output=raw_output,
+            activity_items=activity_items or [],
+            usage=usage,
+            resolvedModel=resolved_model,
         )
+
+
+def _number(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _agent_usage(value: dict[str, Any]) -> AgentUsage:
+    return AgentUsage(
+        inputTokens=_number(value.get("inputTokens")),
+        cachedInputTokens=_number(value.get("cachedInputTokens")),
+        outputTokens=_number(value.get("outputTokens")),
+        reasoningOutputTokens=_number(value.get("reasoningOutputTokens")),
+        totalTokens=_number(value.get("totalTokens")),
+    )
+
+
+def _approval_settings(mode: ApprovalMode, repo_path: Path) -> dict[str, Any]:
+    if mode == "bypass":
+        return {
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": "danger-full-access",
+            "sandboxPolicy": {"type": "dangerFullAccess"},
+        }
+    workspace = {
+        "type": "workspaceWrite",
+        "writableRoots": [str(repo_path)],
+        "networkAccess": False,
+    }
+    if mode == "autopilot":
+        return {
+            "approvalPolicy": "never",
+            "approvalsReviewer": "auto_review",
+            "sandbox": "workspace-write",
+            "sandboxPolicy": workspace,
+        }
+    return {
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "auto_review",
+        "sandbox": "workspace-write",
+        "sandboxPolicy": workspace,
+    }

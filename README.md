@@ -87,7 +87,8 @@ WKWebView 라이브 UI ◀──────────────────
 - **프로젝트별 관리** — 상태 점으로 대기/작업 중/사용 불가를 한눈에
 - **새 프로젝트 생성 · 기존 프로젝트 접속**
 - **CLI 송수신** — 대화 스레드에서 그림이나 텍스트를 보내고 결과 받기
-- **탭으로만 답하기** — 에이전트가 되물으면 선택지를 누른다. 타이핑을 요구하지 않음
+- **대화 공유** — iPad와 VS Code가 같은 VIBEX 대화를 열고 텍스트·드로잉 작업을 함께 확인
+- **iPad 선택 피드백** — 드로잉 요청이 모호하면 선택지 또는 직접 입력으로 답한다
 - **연결이 끊겨도** iMac은 작업을 계속하고, 재접속하면 결과가 그대로 있음
 
 ---
@@ -102,18 +103,24 @@ WKWebView 라이브 UI ◀──────────────────
 | 원격 연결 | Tailscale |
 
 OpenAI Platform API나 `OPENAI_API_KEY`는 사용하지 않습니다. Codex를 선택한
-프로젝트는 PC에 로그인되어 있는 Codex와 공식 App Server로 통신합니다. 저장소의
-정확한 경로가 일치하는 기존 thread를 찾고, VS Code에서 만든 thread를 우선해
-재개합니다. 일치하는 thread가 없을 때만 새 thread를 만듭니다. 새 thread 역시
-Codex의 공용 로컬 세션 저장소에 남으므로 이후 PC에서 이어갈 수 있습니다.
+턴은 PC에 로그인되어 있는 Codex와 공식 App Server로 통신하고, Claude Code를
+선택한 턴은 로컬 Claude CLI로 실행합니다. VS Code와 iPad에 표시되는 대화의
+기준은 VIBEX 공용 `conversationId`입니다. 모델을 바꿔도 이 타임라인은 유지되며,
+각 모델의 네이티브 세션 ID는 같은 공용 대화 아래에 모델별로 따로 보관합니다.
+모델을 전환하면 해당 모델이 마지막으로 본 지점 이후의 공용 턴만 전달합니다.
+오래된 턴은 원본 타임라인을 삭제하지 않고 모델 입력용 요약으로 압축하며, VIBEX가
+추가하는 이전 문맥은 기본 32K 토큰 추정치 이내로 제한합니다.
 
-같은 thread가 VS Code나 터미널에서 이미 응답을 생성 중이면 두 실행 주체가 동시에
+같은 네이티브 thread가 VS Code나 터미널에서 이미 응답을 생성 중이면 두 실행 주체가 동시에
 쓰지 않도록 iPad 요청은 실패 처리됩니다. 현재 응답이 끝난 뒤 다시 전송하면 같은
 thread를 재개하며, 충돌을 피하려고 별도의 대화를 임의로 만들지는 않습니다.
 
 ## 프로젝트 설정
 
-`backend/projects.local.json`에서 프로젝트별 CLI와 프론트엔드 실행 방식을 정합니다.
+`BRIDGE_WORKSPACE_ROOT` 아래의 Git 저장소는 iPad 프로젝트 목록에 자동으로
+표시됩니다. `backend/projects.local.json`은 자동 발견된 프로젝트의 CLI와
+프론트엔드 실행 방식을 덮어쓰는 선택 설정입니다. 작업 루트 안의
+프로젝트는 `repoPath`를 쓰지 않아도 됩니다.
 
 ```json
 {
@@ -121,7 +128,6 @@ thread를 재개하며, 충돌을 피하려고 별도의 대화를 임의로 만
     {
       "projectId": "demo",
       "displayName": "Demo React App",
-      "repoPath": "~/Desktop/demo-react-app",
       "agent": "codex-cli",
       "testCommands": ["npm test"],
       "previewCommand": ["npm", "run", "dev", "--", "--host", "{host}", "--port", "{port}"]
@@ -143,27 +149,54 @@ python3 -m venv backend/.venv
 backend/.venv/bin/pip install -r requirements.txt
 ```
 
-`backend/.env`에는 OpenAI 키 없이 기기 토큰과 새 프로젝트 생성 위치만 둡니다.
+`backend/.env`에는 OpenAI 키 없이 작업 루트만 둡니다.
+Vibex는 이 루트에서 프로젝트를 찾고, iPad에서 생성한 프로젝트도
+같은 루트에 만듭니다.
 
 ```dotenv
-BRIDGE_DEVICE_TOKEN=충분히-긴-임의-문자열
 BRIDGE_WORKSPACE_ROOT=/Users/사용자/Desktop/Vibex/test-projects
+# 선택: 이 계정만 Tailscale Serve를 통해 접근 허용
+BRIDGE_TAILSCALE_ALLOWED_USERS=user@example.com
+# 선택: 멀티 모델 공용 이전 문맥 상한과 압축 크기
+BRIDGE_SHARED_CONTEXT_MAX_TOKENS=32768
+BRIDGE_SHARED_CONTEXT_RECENT_TOKENS=12288
+BRIDGE_SHARED_CONTEXT_SUMMARY_TOKENS=4096
 ```
 
-그다음 PC에서 Bridge를 실행합니다.
+VS Code의 VIBEX 패널을 열면 Bridge가 `127.0.0.1:8787`에서 자동 실행됩니다.
+수동으로 확인할 때만 다음 명령을 사용합니다.
 
 ```bash
 cd backend
-.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8787
+.venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8787
 ```
 
-iPad 앱에는 `http://PC의-Tailscale-IP:8787`과 같은 Bridge 주소와 동일한 기기
-토큰을 입력합니다. `projects.local.json`을 바꾼 뒤에는 레지스트리를 다시 읽도록
-Bridge를 재시작해야 합니다.
+Mac과 물리 iPad의 Tailscale 앱에 같은 tailnet으로 로그인합니다. VIBEX 패널은
+Mac의 Tailscale 머신 이름을 `vibex-pc`로 맞추고 Serve를 자동 구성합니다. iPad는
+주소 입력 없이 MagicDNS의 `http://vibex-pc:8788`로 바로 접속합니다. iPad
+시뮬레이터는 Tailscale 없이 `http://127.0.0.1:8787`에 자동 연결됩니다.
+작업 루트나 `projects.local.json`을 바꾼 뒤에는 Bridge를 재시작해야 합니다.
+
+## VS Code VIBEX 패널
+
+`vscode-extension/`에는 Codex와 Claude Code를 함께 관리하는 VS Code 확장이
+있습니다. 공식 Codex/Claude 패널과 같은 Secondary Sidebar 위치에 `VIBEX` 탭을
+추가하며, iPad와 동일한 Bridge를 사용하므로 공용 대화·프로젝트 잠금·작업 결과가
+하나로 유지됩니다.
+
+개발 중에는 저장소 루트를 VS Code로 열고 `Run and Debug`에서
+`Vibex Extension`을 실행합니다. 새 Extension Development Host에서 `VIBEX` 탭을
+열면 백엔드 경로를 자동으로 찾아 실행합니다. 자동 탐색이 실패할 때만 설정에서
+`vibex.backendPath`를 지정합니다.
+
+패널에서 같은 대화를 유지한 채 턴별 Codex/Claude 선택, 텍스트 작업 전송, 진행
+상태 확인, 리뷰 및 작업 취소를 수행할 수 있습니다. 모호한 드로잉에 대한 선택지
+답변 UI는 iPad 앱에만 표시됩니다.
 
 ```
 src/             PC와 태블릿PC 간 연결 오픈소스
 ipad-app/        iPad 앱 — Swift 파일
+vscode-extension/ VS Code Secondary Sidebar WebView
 docs/            개발 계획 및 검증 기록
 protocol/        예제 스케치 이미지
 examples/        데모용 React 로그인 화면

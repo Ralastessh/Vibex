@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.contract import OUTPUT_CONTRACT, ContractError, extract
+from src.agents.contract import OUTPUT_CONTRACT, ContractError, extract, output_contract
 
 COMPLETED = """작업을 마쳤습니다.
 
@@ -85,3 +85,23 @@ def test_broken_json_is_an_error():
 def test_prompt_and_parser_share_the_fence():
     """계약 문구와 파서가 어긋나면 파싱이 조용히 실패한다."""
     assert "```bridge" in OUTPUT_CONTRACT
+    assert '"reply"' in OUTPUT_CONTRACT
+
+
+def test_vscode_contract_uses_normal_follow_up_instead_of_ipad_choices():
+    contract = output_contract(origin="vscode")
+
+    assert "reply에서 사용자에게 직접 되묻는다" in contract
+    assert "questions는 반드시 빈 배열" in contract
+    assert "iPad 전용 선택지" in contract
+
+
+def test_extract_preserves_structured_user_reply():
+    report = extract(
+        '```bridge\n'
+        '{"status":"completed","reply":"VIBEX UI 확인",'
+        '"summary":"확인","changedFiles":[],"tests":[],"questions":[],"warnings":[]}'
+        '\n```'
+    )
+
+    assert report.reply == "VIBEX UI 확인"

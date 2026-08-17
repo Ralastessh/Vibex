@@ -6,14 +6,29 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from src.agents.base import AgentRunResult
+from src.agents.base import AgentRunResult, ProgressCallback
 from src.agents.contract import ContractError, extract
+from src.tasks.models import AgentUsage, ApprovalMode
 
 # 로깅용
 logger = logging.getLogger("src.agents.claude")
 
 SESSIONS_ROOT = Path.home() / ".claude" / "projects"
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
+
+
+async def _stop_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(process.wait(), timeout=3)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
 
 # 작업 프로젝트 내의 LLM과의 채팅 세션 반환
 def session_dir_for(repo_path: Path) -> Path:
@@ -48,14 +63,25 @@ class ClaudeCodeAdapter:
     # 세부 설정
     def _command(
         self, prompt: str, session_id: str | None,
-        test_commands: list[str] | None, image_paths: list[Path] | None = None
+        test_commands: list[str] | None, image_paths: list[Path] | None = None,
+        model: str | None = None, effort: str | None = None,
+        approval_mode: ApprovalMode = "default",
     ) -> list[str]:
         command = [self._binary, "-p", prompt, "--output-format", "json"]
 
         if session_id:
             # 대화 재개
             command += ["--resume", session_id]
-        command += ["--permission-mode", "acceptEdits"]
+        if model:
+            command += ["--model", model]
+        if effort:
+            command += ["--effort", effort]
+        if approval_mode == "bypass":
+            command += ["--dangerously-skip-permissions"]
+        elif approval_mode == "autopilot":
+            command += ["--permission-mode", "auto"]
+        else:
+            command += ["--permission-mode", "acceptEdits"]
 
         preapproved = ["Read"] if image_paths else []
         preapproved += [f"Bash({c}:*)" for c in (test_commands or [])]
@@ -78,7 +104,14 @@ class ClaudeCodeAdapter:
         prompt: str,
         *,
         test_commands: list[str] | None = None,
-        image_paths: list[Path] | None = None) -> AgentRunResult:
+        image_paths: list[Path] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+        speed_mode: str | None = None,
+        approval_mode: ApprovalMode = "default",
+        on_progress: ProgressCallback | None = None,
+    ) -> AgentRunResult:
+        del speed_mode, on_progress  # Claude JSON 출력에는 부분 이벤트가 없다.
         if shutil.which(self._binary) is None and not Path(self._binary).exists():
             return AgentRunResult(
                 error=f"Claude Code 실행 파일을 찾을 수 없습니다: {self._binary}"
@@ -89,7 +122,10 @@ class ClaudeCodeAdapter:
                 f"{index}. {path.resolve()}" for index, path in enumerate(image_paths, 1)
             )
             prompt = f"{attachment_context}\n\n{prompt}"
-        command = self._command(prompt, session_id, test_commands, image_paths)
+        command = self._command(
+            prompt, session_id, test_commands, image_paths, model=model, effort=effort,
+            approval_mode=approval_mode,
+        )
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=repo_path,
@@ -104,9 +140,11 @@ class ClaudeCodeAdapter:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=self._timeout
             )
+        except asyncio.CancelledError:
+            await _stop_process(process)
+            raise
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            await _stop_process(process)
             return AgentRunResult(
                 session_id=session_id,
                 error=f"에이전트가 {self._timeout:.0f}초 안에 끝나지 않았습니다.",
@@ -116,10 +154,18 @@ class ClaudeCodeAdapter:
             stdout.decode("utf-8", "replace"),
             stderr.decode("utf-8", "replace"),
             fallback_session_id=session_id,
+            requested_model=model,
         )
 
     # LLM 답변 후 해석
-    def _parse(self, stdout: str, stderr: str, *, fallback_session_id: str | None) -> AgentRunResult:
+    def _parse(
+        self,
+        stdout: str,
+        stderr: str,
+        *,
+        fallback_session_id: str | None,
+        requested_model: str | None = None,
+    ) -> AgentRunResult:
         envelope = _load_json(stdout)
         if envelope is None:
             return AgentRunResult(
@@ -156,6 +202,8 @@ class ClaudeCodeAdapter:
             denied_tools=denied,
             error=error,
             raw_output=result_text,
+            resolvedModel=str(envelope.get("model") or requested_model or "") or None,
+            usage=_usage(envelope),
             cost_usd=envelope.get("total_cost_usd"))
 
 # stdout에서 JSON 불러오기
@@ -168,3 +216,20 @@ def _load_json(stdout: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def _usage(envelope: dict) -> AgentUsage | None:
+    raw = envelope.get("usage") or {}
+    cost = envelope.get("total_cost_usd")
+    if not raw and cost is None:
+        return None
+    input_tokens = int(raw.get("input_tokens") or 0)
+    output_tokens = int(raw.get("output_tokens") or 0)
+    cached_tokens = int(raw.get("cache_read_input_tokens") or 0)
+    return AgentUsage(
+        inputTokens=input_tokens,
+        cachedInputTokens=cached_tokens,
+        outputTokens=output_tokens,
+        totalTokens=input_tokens + output_tokens,
+        costUsd=cost,
+    )
