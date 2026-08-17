@@ -37,14 +37,14 @@ enum ShapeSnap {
         let first = points.first!
         let last = points.last!
         let gap = hypot(last.x - first.x, last.y - first.y)
-        let closed = gap < 0.28 * max(w, h)
+        let closed = gap < 0.33 * max(w, h)
 
         // ── 열린 획: 직선인가 ──────────────────────────────
         if !closed {
             let lineLen = hypot(last.x - first.x, last.y - first.y)
             var maxDev: CGFloat = 0
             for p in points { maxDev = max(maxDev, perpDistance(p, first, last)) }
-            if lineLen > 0 && maxDev < 0.06 * lineLen {
+            if lineLen > 0 && maxDev < 0.09 * lineLen {
                 return SnappedShape(kind: .line, outline: [first, last])
             }
             return nil
@@ -57,6 +57,8 @@ enum ShapeSnap {
         let squareish = abs(w - h) / max(w, h) < 0.18
 
         // ── 타원 / 원 검사 ────────────────────────────────
+        // 정규화 반경 평균은 원·타원이 ≈1.0, 사각형이 ≈1.15. mean으로 사각형을
+        // 걸러내고 std(떨림)는 넉넉히 둬서 손으로 대충 그린 원도 잡는다.
         if rx > 4 && ry > 4 {
             var sum: CGFloat = 0
             var sum2: CGFloat = 0
@@ -68,7 +70,7 @@ enum ShapeSnap {
             let n = CGFloat(points.count)
             let mean = sum / n
             let std = (max(0, sum2 / n - mean * mean)).squareRoot()
-            if mean > 0.85 && mean < 1.15 && std < 0.11 {
+            if mean > 0.88 && mean < 1.12 && std < 0.18 {
                 if squareish {
                     let r = (rx + ry) / 2
                     return SnappedShape(kind: .circle, outline: ellipsePoints(cx, cy, r, r))
@@ -78,7 +80,7 @@ enum ShapeSnap {
         }
 
         // ── 코너 검사 (RDP) ───────────────────────────────
-        var corners = rdp(points, 0.045 * diag)
+        var corners = rdp(points, 0.06 * diag)
         // 닫힘으로 인한 시작=끝 중복 제거
         if corners.count > 1,
            hypot(corners[0].x - corners[corners.count - 1].x,
@@ -89,7 +91,7 @@ enum ShapeSnap {
         var merged: [CGPoint] = []
         for c in corners {
             if let prev = merged.last {
-                if hypot(c.x - prev.x, c.y - prev.y) > 0.1 * diag { merged.append(c) }
+                if hypot(c.x - prev.x, c.y - prev.y) > 0.13 * diag { merged.append(c) }
             } else {
                 merged.append(c)
             }
@@ -118,7 +120,32 @@ enum ShapeSnap {
         return nil // 인식 실패 → 원래 자유곡선을 그대로 둔다
     }
 
+    /// 직선 화살표 아웃라인(샤프트 + 화살촉). a→b 방향, 단일 폴리라인으로 그림.
+    static func arrow(from a: CGPoint, to b: CGPoint) -> [CGPoint] {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = hypot(dx, dy)
+        guard len > 0 else { return [a, b] }
+        let ux = dx / len, uy = dy / len
+        let head = min(max(len * 0.22, 12), 30)
+        let c = cos(CGFloat.pi / 7), s = sin(CGFloat.pi / 7) // ≈25.7°
+        // 끝점에서 ±각도로 뻗은 두 갈래. a→b→b1→b→b2 한 획으로 그린다.
+        let b1 = CGPoint(x: b.x - head * (ux * c - uy * s), y: b.y - head * (uy * c + ux * s))
+        let b2 = CGPoint(x: b.x - head * (ux * c + uy * s), y: b.y - head * (uy * c - ux * s))
+        return densify([a, b, b1, b, b2])
+    }
+
     // MARK: - 기하 헬퍼
+
+    /// 꼭짓점 사이를 촘촘한 점으로 채운 열린 폴리라인.
+    private static func densify(_ corners: [CGPoint]) -> [CGPoint] {
+        guard corners.count >= 2 else { return corners }
+        var out: [CGPoint] = []
+        for i in 0..<(corners.count - 1) {
+            out += edgePoints(corners[i], corners[i + 1])
+        }
+        out.append(corners[corners.count - 1])
+        return out
+    }
 
     private static func perpDistance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
         let dx = b.x - a.x
