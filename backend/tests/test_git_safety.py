@@ -121,6 +121,22 @@ def test_agent_editing_the_same_file_is_detected(repo):
     assert "src/app.js" in delta.changed_paths
 
 
+def test_agent_content_edit_on_preexisting_dirty_file_can_be_reversed(repo):
+    """사용자 수정 위에 에이전트가 수정해도 사용자 상태까지 정확히 복원한다."""
+    target = repo / "src" / "app.js"
+    target.write_text("사용자 수정\n", encoding="utf-8")
+    before = git.snapshot(repo)
+    target.write_text("에이전트 수정\n", encoding="utf-8")
+
+    delta = git.diff(before, git.snapshot(repo))
+    assert delta.changed_paths == ("src/app.js",)
+    assert delta.stats == (("src/app.js", 1, 1),)
+    assert delta.patch
+
+    git.reverse_patch(repo, delta.patch)
+    assert target.read_text(encoding="utf-8") == "사용자 수정\n"
+
+
 def test_branch_change_is_detected(repo):
     before = git.snapshot(repo)
     run(repo, "checkout", "-q", "-b", "feature")

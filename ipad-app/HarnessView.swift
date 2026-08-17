@@ -6,7 +6,6 @@ import UIKit
 /// 실제 흐름은 RootView에 있으므로 앱 진입점은 아니다.
 struct HarnessView: View {
     @AppStorage("bridgeBaseURL") private var baseURLText = "http://127.0.0.1:8787"
-    @AppStorage("bridgeToken") private var token = ""
     @AppStorage("bridgeProjectId") private var projectId = "demo"
     /// 시뮬레이터에는 펜슬이 없어 기본값(펜만 허용)으로는 그릴 수 없다.
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
@@ -19,7 +18,7 @@ struct HarnessView: View {
     private var client: BridgeClient {
         let url = URL(string: baseURLText.trimmingCharacters(in: .whitespaces))
             ?? URL(string: "http://127.0.0.1:8000")!
-        return BridgeClient(baseURL: url, deviceToken: token)
+        return BridgeClient(baseURL: url)
     }
 
     var body: some View {
@@ -30,7 +29,6 @@ struct HarnessView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
-                    SecureField("기기 토큰", text: $token)
                     Button("프로젝트 불러오기") { loadProjects() }
                         .disabled(isLoading)
                 }

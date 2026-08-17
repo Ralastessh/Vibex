@@ -24,6 +24,37 @@ enum TaskStatus: String, Decodable {
 struct TaskCreated: Decodable {
     let taskId: String
     let status: TaskStatus
+    let conversationId: String?
+}
+
+struct AgentOption: Decodable, Identifiable {
+    let value: String
+    let label: String
+    var id: String { value }
+}
+
+struct AgentView: Decodable, Identifiable {
+    let agentId: String
+    let displayName: String
+    let usable: Bool
+    let note: String
+    let models: [AgentOption]
+    var id: String { agentId }
+}
+
+struct ConversationView: Decodable, Identifiable {
+    let conversationId: String
+    let projectId: String
+    let title: String
+    let createdAt: Date
+    let updatedAt: Date
+    let agentSessions: [String: String]
+    var id: String { conversationId }
+}
+
+struct ConversationDetail: Decodable {
+    let conversation: ConversationView
+    let tasks: [TaskView]
 }
 
 struct ProjectView: Decodable, Identifiable {
@@ -69,11 +100,22 @@ struct PreviewView: Decodable {
     let port: Int
 }
 
+struct HealthView: Decodable {
+    let status: String
+    let projects: Int
+}
+
 struct TaskView: Decodable {
     let taskId: String
     let projectId: String
+    let conversationId: String?
     let status: TaskStatus
     let sessionId: String?
+    let agentId: String?
+    let agentModel: String?
+    let userMessage: String
+    let createdAt: Date
+    let updatedAt: Date
     let summary: String?
     /// 에이전트가 사람에게 한 말. summary는 한 문장뿐이라 자세한 설명은 여기 있다.
     let agentReply: String?
@@ -118,14 +160,17 @@ private struct ErrorDetail: Decodable { let detail: String? }
 
 /// iMac의 Desktop Bridge와 통신한다.
 ///
-/// 주소와 토큰의 영구 저장(Keychain)은 연결 설정 화면의 몫이다. 여기서는 값을
-/// 받아 쓰기만 한다.
+/// 연결 주소의 영구 저장은 연결 설정 화면의 몫이다. 요청 인증은 Tailscale
+/// Serve가 검증한 기기/사용자 신원으로 처리하므로 앱 전용 토큰을 싣지 않는다.
 struct BridgeClient {
     let baseURL: URL
-    let deviceToken: String
     var session: URLSession = .shared
 
     private static let prefix = "api/v1"
+
+    func health() async throws -> HealthView {
+        try await send(request(path: "health"), as: HealthView.self)
+    }
 
     /// 사용자가 연결 확인에 쓴 `/api/v1/health` 주소를 그대로 붙여 넣더라도
     /// API 경로가 중복되지 않게 PC 서버의 루트 URL로 되돌린다.
@@ -155,6 +200,34 @@ struct BridgeClient {
         return try await send(request(path: "projects"), as: Response.self).projects
     }
 
+    func listAgents() async throws -> [AgentView] {
+        struct Response: Decodable { let agents: [AgentView] }
+        return try await send(request(path: "agents"), as: Response.self).agents
+    }
+
+    func conversations(projectId: String) async throws -> [ConversationView] {
+        struct Response: Decodable { let conversations: [ConversationView] }
+        return try await send(
+            request(path: "projects/\(projectId)/conversations"),
+            as: Response.self
+        ).conversations
+    }
+
+    func createConversation(projectId: String) async throws -> ConversationView {
+        try await sendJSON(
+            path: "projects/\(projectId)/conversations",
+            body: ["title": "새 대화"],
+            as: ConversationView.self
+        )
+    }
+
+    func conversation(projectId: String, conversationId: String) async throws -> ConversationDetail {
+        try await send(
+            request(path: "projects/\(projectId)/conversations/\(conversationId)"),
+            as: ConversationDetail.self
+        )
+    }
+
     func startPreview(projectId: String) async throws -> PreviewView {
         try await send(
             request(path: "projects/\(projectId)/preview", method: "POST"),
@@ -174,9 +247,13 @@ struct BridgeClient {
         projectId: String,
         snapshot: CanvasComposer.Snapshot,
         typedNote: String? = nil,
-        clientTaskId: String
+        clientTaskId: String,
+        conversationId: String? = nil,
+        agentId: String? = nil
     ) async throws -> TaskCreated {
         var fields = ["projectId": projectId, "clientTaskId": clientTaskId]
+        if let conversationId { fields["conversationId"] = conversationId }
+        if let agentId { fields["agentId"] = agentId }
         if let typedNote, !typedNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fields["typedNote"] = typedNote
         }
@@ -195,16 +272,20 @@ struct BridgeClient {
 
     /// 텍스트만 보낸다(그림 없이).
     func createTask(
-        projectId: String, typedNote: String, clientTaskId: String
+        projectId: String,
+        typedNote: String,
+        clientTaskId: String,
+        conversationId: String? = nil,
+        agentId: String? = nil
     ) async throws -> TaskCreated {
-        let (body, contentType) = Self.multipartBody(
-            fields: [
-                "projectId": projectId,
-                "clientTaskId": clientTaskId,
-                "typedNote": typedNote,
-            ],
-            files: []
-        )
+        var fields = [
+            "projectId": projectId,
+            "clientTaskId": clientTaskId,
+            "typedNote": typedNote,
+        ]
+        if let conversationId { fields["conversationId"] = conversationId }
+        if let agentId { fields["agentId"] = agentId }
+        let (body, contentType) = Self.multipartBody(fields: fields, files: [])
         var req = request(path: "tasks", method: "POST")
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         req.httpBody = body
@@ -224,13 +305,25 @@ struct BridgeClient {
         return try await send(req, as: Response.self).tasks
     }
 
-    /// 되물음에 탭으로 답한다.
+    /// 되물음에 추천 선택지 또는 사용자가 직접 입력한 문장으로 답한다.
     func answer(
-        _ taskId: String, questionId: String, optionId: String
+        _ taskId: String,
+        questionId: String,
+        optionId: String? = nil,
+        freeText: String? = nil
     ) async throws -> TaskCreated {
-        try await sendJSON(
+        var body: [String: Any] = ["questionId": questionId]
+        if let optionId { body["selectedOptionId"] = optionId }
+        if let freeText,
+           !freeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["freeText"] = freeText
+            // 이전 백엔드는 selectedOptionId를 필수로 받으므로 직접 입력임을 나타내는
+            // 예약값도 함께 보내 하위 호환성을 유지한다.
+            if optionId == nil { body["selectedOptionId"] = "__free_text__" }
+        }
+        return try await sendJSON(
             path: "tasks/\(taskId)/answer",
-            body: ["questionId": questionId, "selectedOptionId": optionId],
+            body: body,
             as: TaskCreated.self
         )
     }
@@ -252,7 +345,6 @@ struct BridgeClient {
 
         var req = URLRequest(url: components?.url ?? url)
         req.httpMethod = method
-        req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
         return req
     }
 
@@ -280,7 +372,22 @@ struct BridgeClient {
         }
 
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let value = try container.decode(String.self)
+                let fractional = ISO8601DateFormatter()
+                fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = fractional.date(from: value) { return date }
+                let standard = ISO8601DateFormatter()
+                standard.formatOptions = [.withInternetDateTime]
+                if let date = standard.date(from: value) { return date }
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "ISO 8601 날짜를 해석할 수 없습니다: \(value)"
+                )
+            }
+            return try decoder.decode(T.self, from: data)
         } catch {
             throw BridgeError(message: "서버 응답을 해석할 수 없습니다.", statusCode: status)
         }
@@ -293,7 +400,7 @@ struct BridgeClient {
             return detail
         }
         switch status {
-        case 401: return "기기 토큰이 올바르지 않습니다. 연결 설정을 확인해 주세요."
+        case 401: return "Tailscale 연결과 로그인 계정을 확인해 주세요."
         case 404: return "요청한 항목을 iMac에서 찾을 수 없습니다."
         case 409: return "지금은 처리할 수 없는 상태입니다."
         case 413: return "보낸 이미지가 너무 큽니다."

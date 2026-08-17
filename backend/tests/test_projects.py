@@ -71,6 +71,102 @@ def test_busy_while_a_task_is_active(client, tasks):
     assert body["activeTaskId"] == task.task_id
 
 
+class FakeThreadAdapter:
+    def __init__(self, repo):
+        self.repo = repo
+        self.renamed = None
+        self.archived = None
+
+    async def list_threads(self, repo_path, **kwargs):
+        assert repo_path == self.repo
+        assert kwargs["limit"] == 12
+        return {
+            "data": [{
+                "id": "thread-1",
+                "sessionId": "thread-1",
+                "name": "실제 대화",
+                "preview": "첫 질문",
+                "source": "vscode",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "recencyAt": 3,
+            }],
+            "nextCursor": "next",
+        }
+
+    async def read_thread(self, repo_path, thread_id, *, include_turns):
+        assert repo_path == self.repo
+        assert thread_id == "thread-1"
+        assert include_turns is True
+        return {
+            "id": thread_id,
+            "sessionId": thread_id,
+            "name": "실제 대화",
+            "preview": "첫 질문",
+            "source": "vscode",
+            "turns": [{
+                "id": "turn-1",
+                "status": "completed",
+                "items": [
+                    {"id": "user-1", "type": "userMessage", "content": [
+                        {"type": "text", "text": "하이"}
+                    ]},
+                    {"id": "agent-1", "type": "agentMessage", "text": "안녕하세요"},
+                ],
+            }],
+        }
+
+    async def set_thread_name(self, repo_path, thread_id, name):
+        assert repo_path == self.repo
+        self.renamed = (thread_id, name)
+
+    async def archive_thread(self, repo_path, thread_id):
+        assert repo_path == self.repo
+        self.archived = thread_id
+
+
+def test_codex_thread_history_routes_are_real_and_keep_turn_items(
+    client, repo, monkeypatch
+):
+    adapter = FakeThreadAdapter(repo)
+    monkeypatch.setattr("src.api.projects._codex_adapter", lambda request, project: adapter)
+
+    page = client.get(
+        "/api/v1/projects/demo/threads", headers=AUTH, params={"limit": 12}
+    )
+    assert page.status_code == 200
+    assert page.json() == {
+        "threads": [{
+            "threadId": "thread-1",
+            "sessionId": "thread-1",
+            "name": "실제 대화",
+            "preview": "첫 질문",
+            "source": "vscode",
+            "createdAt": 1,
+            "updatedAt": 2,
+            "recencyAt": 3,
+        }],
+        "nextCursor": "next",
+    }
+
+    detail = client.get("/api/v1/projects/demo/threads/thread-1", headers=AUTH)
+    assert detail.status_code == 200
+    assert detail.json()["turns"][0]["items"][1]["text"] == "안녕하세요"
+
+    renamed = client.patch(
+        "/api/v1/projects/demo/threads/thread-1",
+        headers=AUTH,
+        json={"name": "  새 이름  "},
+    )
+    archived = client.post(
+        "/api/v1/projects/demo/threads/thread-1/archive", headers=AUTH
+    )
+    assert renamed.status_code == 204
+    assert archived.status_code == 204
+    assert adapter.renamed == ("thread-1", "새 이름")
+    assert adapter.archived == "thread-1"
+
+
 # --- 레지스트리 자체 ---
 
 
@@ -88,3 +184,42 @@ def test_registry_refuses_unknown_id(settings):
 def test_missing_registry_file_is_not_fatal(tmp_path):
     """레지스트리가 없어도 서버는 뜬다 — 작업만 못 한다."""
     assert ProjectRegistry.load(tmp_path / "none.json").list_enabled() == []
+
+
+def test_discovers_git_repositories_under_workspace(tmp_path):
+    root = tmp_path / "workspace"
+    nested = root / "team" / "moonwalk"
+    (nested / ".git").mkdir(parents=True)
+
+    registry = ProjectRegistry.load(tmp_path / "none.json", workspace_root=root)
+
+    project = registry.resolve("team--moonwalk")
+    assert project.repo_path == nested.resolve()
+
+
+def test_ignores_dependency_repositories_during_discovery(tmp_path):
+    root = tmp_path / "workspace"
+    ignored = root / "app" / "node_modules" / "dependency"
+    (ignored / ".git").mkdir(parents=True)
+
+    registry = ProjectRegistry.load(tmp_path / "none.json", workspace_root=root)
+
+    assert registry.list_enabled() == []
+
+
+def test_pathless_config_overrides_discovered_project(tmp_path):
+    import json
+
+    root = tmp_path / "workspace"
+    repo = root / "demo"
+    (repo / ".git").mkdir(parents=True)
+    config = tmp_path / "projects.json"
+    config.write_text(
+        json.dumps({"projects": [{"projectId": "demo", "agent": "codex-cli"}]}),
+        encoding="utf-8",
+    )
+
+    project = ProjectRegistry.load(config, workspace_root=root).resolve("demo")
+
+    assert project.repo_path == repo.resolve()
+    assert project.agent == "codex-cli"

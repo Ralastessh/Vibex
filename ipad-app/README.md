@@ -20,14 +20,15 @@ Swift 전체 소스는 iOS 16 시뮬레이터 SDK 기준 `swiftc -typecheck`를 
 | 파일 | 역할 |
 |---|---|
 | `VibexApp.swift` | `@main` → RootView |
-| `RootView.swift` | 연결설정·프로젝트목록·라이브 프리뷰 시작·작업상태 |
+| `RootView.swift` | MagicDNS 자동 연결·프로젝트목록·라이브 프리뷰 시작·작업상태 |
 | `EventStream.swift` | WebSocket 이벤트(보조; 현재 미연결, 폴링이 주 경로) |
 | `HarnessView.swift` | 개발용 시험 화면 + 샘플 스크린샷(진입점 아님) |
 | `project.yml` | XcodeGen 스펙 + Info.plist·ATS |
 
 ## 흐름
 
-1. 설정(⚙️)에 Bridge 주소 + 기기 토큰 입력 (main 하네스와 `bridgeBaseURL`/`bridgeToken` 공유)
+1. 물리 iPad는 Tailscale에 로그인하면 `vibex-pc:8788`로 자동 연결
+   (시뮬레이터는 `127.0.0.1:8787` 자동 연결)
 2. 프로젝트 목록(상태 점) → 프로젝트 선택
 3. PC가 시작한 Vite/React 프론트엔드를 WKWebView에서 직접 조작
 4. 드로잉 모드 전환 → 보내기(투명 획+현재 라이브 렌더 분리 전송)

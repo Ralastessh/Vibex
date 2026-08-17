@@ -76,12 +76,7 @@ def test_resent_after_completion_still_returns_the_original(store):
 
 
 def test_results_survive_while_the_process_lives(store):
-    """§20 iPad Disconnect — iPad가 끊긴 동안에도 결과가 남아 있어야 한다.
-
-    이것이 DB 없이도 성립하는 이유: iPad 연결이 끊겨도 **Bridge 프로세스는 계속
-    돌며** 작업을 수행한다. 재접속한 iPad는 같은 프로세스에게 다시 묻는 것뿐이다.
-    (프로세스 자체가 재시작되면 사라진다 — 그것은 MVP 범위 밖이다.)
-    """
+    """iPad가 끊겼다가 같은 Bridge에 재접속해도 결과가 남는다."""
     from src.tasks.models import ChangedFile, Question, QuestionOption, TestResult
 
     task = store.create("demo")
@@ -104,6 +99,42 @@ def test_results_survive_while_the_process_lives(store):
     assert loaded.test_results[0].status == "passed"
     assert loaded.questions[0].options[0].label == "네"
     assert loaded.warnings == ["미커밋 변경사항이 있었습니다."]
+
+
+def test_completed_conversation_survives_store_restart(tmp_path):
+    path = tmp_path / "conversations.json"
+    first = TaskStore(path=path)
+    task = first.create(
+        "demo", user_message="Codex에게 질문", agent_id="codex-cli"
+    )
+    first.update(
+        task.task_id,
+        status=TaskStatus.COMPLETED,
+        session_id="codex-thread-1",
+        agent_reply="첫 답변",
+    )
+    first.close()
+
+    second = TaskStore(path=path)
+    loaded = second.get(task.task_id)
+    assert loaded.user_message == "Codex에게 질문"
+    assert loaded.agent_reply == "첫 답변"
+    assert loaded.agent_id == "codex-cli"
+    assert loaded.session_id == "codex-thread-1"
+    second.close()
+
+
+def test_interrupted_persisted_task_is_failed_after_restart(tmp_path):
+    path = tmp_path / "conversations.json"
+    first = TaskStore(path=path)
+    task = first.create("demo", user_message="실행 중")
+
+    second = TaskStore(path=path)
+    loaded = second.get(task.task_id)
+    assert loaded.status is TaskStatus.FAILED
+    assert "재시작" in loaded.error
+    first.close()
+    second.close()
 
 
 def test_reads_return_copies_not_shared_state(store):
