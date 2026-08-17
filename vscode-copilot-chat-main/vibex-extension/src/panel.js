@@ -30,6 +30,8 @@ class VibexPanel {
     this.view = undefined;
     this.selectedProjectId = null;
     this.selectedConversationId = null;
+    // Last published task snapshot, so "cancel" can find what is running.
+    this.tasks = [];
     this.options = { ...(context.globalState.get(OPTIONS_KEY) || {}) };
     this.refreshGeneration = 0;
     this._following = new Set();
@@ -102,7 +104,83 @@ class VibexPanel {
         await this._pickAttachment();
         return;
       }
+      case "searchMentions": {
+        const projectId = await this._projectId();
+        this.view?.webview.postMessage({
+          type: "mentionResults",
+          requestId: message.requestId || null,
+          files: this._findMentionCandidates(projectId, message.query),
+        });
+        return;
+      }
+      case "cancel": {
+        await this._cancel();
+        return;
+      }
     }
+  }
+
+  /**
+   * Cancels the task the composer is currently waiting on.
+   *
+   * The webview only knows that *something* is running, so the active task is
+   * resolved here from the same snapshot `refresh()` last published.
+   */
+  async _cancel() {
+    const active = [...(this.tasks || [])]
+      .reverse()
+      .find((task) => ACTIVE_STATUSES.has(task.status));
+    if (!active) {
+      await this.refresh();
+      return;
+    }
+    await this.bridge.cancelTask(active.taskId);
+    await this.refresh();
+  }
+
+  /**
+   * Files under the project root that match an `@` mention prefix.
+   *
+   * Breadth-first so shallow files — the ones usually wanted — surface first,
+   * with hard caps on both results and visited entries to keep the keystroke
+   * round-trip cheap on large repositories.
+   */
+  _findMentionCandidates(projectId, query = "") {
+    const root = this.bridge.resolveProjectRoot(projectId);
+    if (!root) return [];
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const normalized = String(query || "").trim().toLocaleLowerCase();
+    const ignored = new Set([
+      ".git", ".next", ".venv", "__pycache__", "build", "dist", "node_modules", "venv",
+    ]);
+    const queue = [root];
+    const results = [];
+    let visited = 0;
+    while (queue.length && results.length < 40 && visited < 2500) {
+      let entries;
+      try {
+        entries = fs.readdirSync(queue.shift(), { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      for (const entry of entries) {
+        if (visited++ >= 2500) break;
+        if (entry.name.startsWith(".") || ignored.has(entry.name) || entry.isSymbolicLink()) continue;
+        const absolute = path.join(entry.parentPath || entry.path, entry.name);
+        if (entry.isDirectory()) {
+          queue.push(absolute);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const relativePath = path.relative(root, absolute);
+        if (normalized && !relativePath.toLocaleLowerCase().includes(normalized)) continue;
+        results.push({ relativePath, name: entry.name });
+        if (results.length >= 40) break;
+      }
+    }
+    return results;
   }
 
   /** Native file dialog scoped to the project; inserts an `@path` mention. */
@@ -238,6 +316,7 @@ class VibexPanel {
         tasks = Array.isArray(detail.tasks) ? detail.tasks : [];
       }
       if (generation !== this.refreshGeneration) return;
+      this.tasks = tasks;
 
       const lastTask = tasks[tasks.length - 1];
       if (lastTask && ACTIVE_STATUSES.has(lastTask.status)) this._follow(lastTask.taskId);
@@ -291,6 +370,9 @@ class VibexPanel {
       try {
         for (;;) {
           const task = await this.bridge.getTask(taskId);
+          const index = this.tasks.findIndex((candidate) => candidate.taskId === task.taskId);
+          if (index >= 0) this.tasks[index] = task;
+          else this.tasks.push(task);
           this.view?.webview.postMessage({ type: "taskUpdate", task });
           if (!ACTIVE_STATUSES.has(task.status)) break;
           await new Promise((resolve) => {

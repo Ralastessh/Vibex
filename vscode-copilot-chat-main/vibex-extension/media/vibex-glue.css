@@ -124,6 +124,31 @@ body > .interactive-session {
   position: relative;
 }
 
+/* The `/` `@` assist popup reuses the menu chrome above, but anchors to the
+   composer instead of the viewport so it follows the box as it grows. */
+.vibex-assist {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  min-width: 0;
+  max-height: 220px;
+}
+.vibex-assist .vibex-menu-item {
+  white-space: nowrap;
+  overflow: hidden;
+}
+.vibex-assist .vibex-assist-label {
+  flex: 0 0 auto;
+}
+.vibex-assist .vibex-assist-description {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
 /* The workbench lays the two composer toolbars out with its own flexbox that
    lives in JS-measured code; only the row direction is needed here. All item
    visuals come from the native rules via the exact class structure. */
