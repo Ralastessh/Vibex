@@ -28,6 +28,12 @@ const state = {
   options: { modelId: null, effort: "", approvalMode: "default" },
   busy: false,
   connectionError: null,
+  // Composer `/` and `@` assist popup.
+  assistItems: [],
+  assistIndex: 0,
+  assistRange: null,
+  mentionRequestId: null,
+  mentionFiles: [],
 };
 
 const ACTIVE_STATUSES = new Set([
@@ -45,6 +51,20 @@ const STATUS_MESSAGES = {
 };
 
 const AGENT_NAMES = { "claude-code": "Claude Code", "codex-cli": "Codex", "gemini-cli": "Gemini" };
+
+/**
+ * Slash commands offered by the composer.
+ *
+ * The bridge exposes no command API, so these are prompt shortcuts expanded
+ * locally: `prompt` replaces the typed token, `action` runs in the webview.
+ */
+const SLASH_COMMANDS = [
+  { value: "/clear", description: "입력 비우기", action: "clear" },
+  { value: "/explain", description: "선택한 코드나 프로젝트 설명", prompt: "다음을 이해하기 쉽게 설명해줘: " },
+  { value: "/fix", description: "문제를 조사하고 수정", prompt: "다음 문제의 원인을 조사하고 수정해줘: " },
+  { value: "/test", description: "관련 테스트 작성 또는 실행", prompt: "다음 대상의 관련 테스트를 작성하거나 실행해줘: " },
+  { value: "/review", description: "현재 변경사항 검토", prompt: "현재 프로젝트의 변경사항을 검토해줘. " },
+];
 
 // #region DOM helpers
 
@@ -175,6 +195,8 @@ textarea.addEventListener("focus", () => inputContainer.classList.add("focused")
 textarea.addEventListener("blur", () => inputContainer.classList.remove("focused"));
 textarea.addEventListener("input", autoGrow);
 textarea.addEventListener("keydown", (event) => {
+  // The `/` `@` popup owns navigation and accept keys while it is open.
+  if (handleAssistKey(event)) return;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     submit();
@@ -185,6 +207,146 @@ function autoGrow() {
   textarea.style.height = "auto";
   textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`;
 }
+
+// #endregion
+
+// #region Composer assist (`/` commands and `@` file mentions)
+
+// Anchored to the composer rather than <body>: unlike the picker menus this
+// popup tracks a caret, so it must move with the input box as it grows.
+const assistPopup = el("div", "vibex-menu vibex-assist");
+assistPopup.style.display = "none";
+inputContainer.append(assistPopup);
+
+/** The `/…` or `@…` token the caret currently sits in, if any. */
+function assistTokenAtCaret() {
+  const caret = textarea.selectionStart ?? textarea.value.length;
+  const match = textarea.value.slice(0, caret).match(/(^|\s)([/@][^\s]*)$/u);
+  if (!match) return null;
+  const token = match[2];
+  return { token, start: caret - token.length, end: caret };
+}
+
+function closeAssist() {
+  state.assistItems = [];
+  state.assistRange = null;
+  assistPopup.style.display = "none";
+  assistPopup.replaceChildren();
+}
+
+function updateAssist() {
+  const range = assistTokenAtCaret();
+  if (!range) {
+    closeAssist();
+    return;
+  }
+  state.assistRange = range;
+  state.assistIndex = 0;
+
+  if (range.token.startsWith("/")) {
+    const query = range.token.toLocaleLowerCase();
+    state.assistItems = SLASH_COMMANDS
+      .filter((command) => command.value.startsWith(query))
+      .map((command) => ({ kind: "command", label: command.value, ...command }));
+    renderAssist();
+    return;
+  }
+
+  // Files arrive asynchronously; render what is already cached so the popup
+  // opens on the first keystroke instead of after the round-trip.
+  state.assistItems = mentionItems(range.token.slice(1));
+  renderAssist();
+  state.mentionRequestId = `mention-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  post({ type: "searchMentions", requestId: state.mentionRequestId, query: range.token.slice(1) });
+}
+
+/** Cached mention candidates narrowed by the typed prefix. */
+function mentionItems(query) {
+  const needle = String(query || "").toLocaleLowerCase();
+  return state.mentionFiles
+    .filter((file) => !needle || file.relativePath.toLocaleLowerCase().includes(needle))
+    .map((file) => ({ kind: "file", label: file.name, description: file.relativePath, file }));
+}
+
+function renderAssist() {
+  if (!state.assistRange || !state.assistItems.length) {
+    assistPopup.style.display = "none";
+    assistPopup.replaceChildren();
+    return;
+  }
+  if (state.assistIndex >= state.assistItems.length) state.assistIndex = 0;
+  assistPopup.replaceChildren(
+    ...state.assistItems.map((item, index) => {
+      const row = el("div", `vibex-menu-item${index === state.assistIndex ? " checked" : ""}`);
+      row.append(
+        codicon(item.kind === "file" ? "file" : "terminal"),
+        el("span", "vibex-assist-label", item.label),
+        el("span", "vibex-assist-description", item.description || ""),
+      );
+      // Keep focus in the textarea so the caret offsets stay valid.
+      row.addEventListener("mousedown", (event) => event.preventDefault());
+      row.addEventListener("click", () => applyAssist(index));
+      return row;
+    }),
+  );
+  assistPopup.style.display = "";
+}
+
+/** Swaps the tracked token for `replacement` and puts the caret after it. */
+function replaceAssistToken(replacement) {
+  const range = state.assistRange || assistTokenAtCaret();
+  if (!range) return;
+  const value = textarea.value;
+  textarea.value = value.slice(0, range.start) + replacement + value.slice(range.end);
+  const caret = range.start + replacement.length;
+  textarea.setSelectionRange(caret, caret);
+  autoGrow();
+  syncSendEnabled();
+}
+
+function applyAssist(index) {
+  const item = state.assistItems[index];
+  if (!item) return;
+  if (item.kind === "command" && item.action === "clear") {
+    textarea.value = "";
+    autoGrow();
+    syncSendEnabled();
+  } else if (item.kind === "command") {
+    replaceAssistToken(item.prompt || `${item.value} `);
+  } else {
+    replaceAssistToken(`@${item.file.relativePath} `);
+  }
+  closeAssist();
+  textarea.focus();
+}
+
+/** Returns true when the popup consumed the key. */
+function handleAssistKey(event) {
+  if (assistPopup.style.display === "none" || !state.assistItems.length) return false;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const count = state.assistItems.length;
+    state.assistIndex = (state.assistIndex + delta + count) % count;
+    renderAssist();
+    return true;
+  }
+  if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    applyAssist(state.assistIndex);
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAssist();
+    return true;
+  }
+  return false;
+}
+
+textarea.addEventListener("input", updateAssist);
+textarea.addEventListener("click", updateAssist);
+textarea.addEventListener("blur", () => setTimeout(closeAssist, 120));
 
 // #endregion
 
@@ -343,9 +505,29 @@ sendItem.append(sendButton);
 executeItems.append(sendItem);
 sendButton.addEventListener("click", submit);
 
+// Stop — the workbench swaps the submit action for this one while a response is
+// streaming, so the composer carries both and shows exactly one at a time.
+const stopItem = el("li", "action-item menu-entry chat-stop-button");
+const stopButton = el("a", "action-label codicon codicon-stop-circle");
+stopButton.title = "생성 중지";
+stopItem.append(stopButton);
+executeItems.append(stopItem);
+stopButton.addEventListener("click", () => {
+  if (!state.busy) return;
+  stopItem.classList.add("disabled");
+  stopButton.classList.add("disabled");
+  post({ type: "cancel" });
+});
+
 // Native submit button greys out while there is nothing to send — the
 // workbench puts .disabled on both the item and the label.
 function syncSendEnabled() {
+  sendItem.style.display = state.busy ? "none" : "";
+  stopItem.style.display = state.busy ? "" : "none";
+  if (!state.busy) {
+    stopItem.classList.remove("disabled");
+    stopButton.classList.remove("disabled");
+  }
   const disabled = !textarea.value.trim() || state.busy;
   sendItem.classList.toggle("disabled", disabled);
   sendButton.classList.toggle("disabled", disabled);
@@ -599,8 +781,10 @@ function renderTranscript() {
 function submit() {
   const text = textarea.value.trim();
   if (!text || state.busy) return;
+  closeAssist();
   textarea.value = "";
   autoGrow();
+  syncSendEnabled();
   post({
     type: "send",
     text,
@@ -630,9 +814,22 @@ window.addEventListener("message", (event) => {
         const first = state.agents.find((agent) => agent.usable);
         if (first) state.options.modelId = `${first.agentId}::${first.models?.[0]?.value || ""}`;
       }
-      textarea.placeholder = "VIBEX에 요청하세요. `@경로`로 프로젝트 파일을 참조할 수 있습니다.";
+      textarea.placeholder = "VIBEX에 요청하세요. `/`로 명령, `@`로 프로젝트 파일을 참조할 수 있습니다.";
       renderPickers();
       renderTranscript();
+      syncSendEnabled();
+      break;
+    }
+    case "mentionResults": {
+      if (message.requestId !== state.mentionRequestId) break; // 늦게 도착한 응답
+      state.mentionFiles = Array.isArray(message.files) ? message.files : [];
+      // Re-render from the refreshed cache only — going through updateAssist()
+      // here would post another search and loop.
+      const range = assistTokenAtCaret();
+      if (!range || !range.token.startsWith("@")) break;
+      state.assistRange = range;
+      state.assistItems = mentionItems(range.token.slice(1));
+      renderAssist();
       break;
     }
     case "insertMention": {
@@ -649,6 +846,7 @@ window.addEventListener("message", (event) => {
       else state.tasks.push(message.task);
       state.busy = ACTIVE_STATUSES.has(message.task.status);
       renderTranscript();
+      syncSendEnabled();
       break;
     }
   }
