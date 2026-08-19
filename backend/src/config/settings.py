@@ -6,8 +6,22 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# 저장소 루트(backend/의 부모). 모든 기본 경로는 여기서 파생되므로 저장소를
+# 어느 머신 어느 폴더에 두든 설정 없이 동작한다.
+CHECKOUT_ROOT = REPO_ROOT.parent
 ROOT_MARKERS = ("pytest.ini",)
 ENV_FILES = (REPO_ROOT / ".env", Path(".env"))
+
+
+def default_workspace_root() -> Path | None:
+    """체크아웃 안의 기본 작업공간 경로.
+
+    Settings 필드 기본값으로는 쓰지 않는다 — 그러면 테스트가 개발자 머신의
+    실제 폴더를 집어 결과가 기기마다 달라진다(tests/test_settings.py 참고).
+    scripts/setup.sh 가 이 값을 읽어 머신별 .env 를 생성한다.
+    """
+    candidate = CHECKOUT_ROOT / "test-projects"
+    return candidate if candidate.is_dir() else None
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

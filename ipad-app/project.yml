@@ -24,8 +24,13 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
-        DEVELOPMENT_TEAM: "D5QAJTL57J"      # Joonsu Kim (Apple Development)
         CODE_SIGN_STYLE: Automatic
+        # 서명 팀은 머신마다 다르므로 커밋하지 않는다.
+        # scripts/setup.sh 가 키체인에서 팀 ID를 찾아 Local.xcconfig 를 만든다.
+        DEVELOPMENT_TEAM: "$(VIBEX_DEVELOPMENT_TEAM)"
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     info:
       path: Info.plist
       properties:
