@@ -1,4 +1,3 @@
-import PencilKit
 import SwiftUI
 
 /// Vibex 주석 캔버스 화면.
@@ -19,8 +18,8 @@ struct AnnotationCanvasView: View {
     /// 작업이 만들어지면 상위(확인 화면)로 넘긴다.
     var onCreated: (TaskCreated) -> Void = { _ in }
 
-    @State private var canvasView = PKCanvasView()
-    @State private var shapeSnapEnabled = false
+    @StateObject private var canvas = DrawingController()
+    @State private var canvasSize: CGSize = .zero
 
     /// 재전송해도 작업이 중복 생성되지 않게 하는 값. 전송이 성공할 때까지 유지한다.
     @State private var clientTaskId = UUID().uuidString
@@ -30,9 +29,8 @@ struct AnnotationCanvasView: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        // 배경과 캔버스 **모두** 이 크기에 못박는다. PKCanvasView는 UIScrollView라
-        // 스스로 보고하는 크기가 화면보다 클 수 있는데, 그러면 ZStack이 부풀어
-        // 상단 툴바와 하단 버튼이 화면 밖으로 밀려난다.
+        // 배경과 캔버스 **모두** 이 크기에 못박는다. 여기가 어긋나면 전송 이미지의
+        // 획 좌표가 배경과 맞지 않는다.
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 // 배경: 스크린샷. 캔버스와 **같은 영역**을 채워야 한다 —
@@ -44,18 +42,22 @@ struct AnnotationCanvasView: View {
                     .clipped()
 
                 // 주석 레이어 (투명)
-                PencilCanvas(
-                    canvasView: canvasView,
-                    shapeSnapEnabled: $shapeSnapEnabled,
+                DrawingCanvas(
+                    controller: canvas,
                     allowFingerDrawing: allowFingerDrawing
                 )
                 .frame(width: geo.size.width, height: geo.size.height)
 
                 // 떠 있는 액션바
-                toolbar
-                    .padding(.top, 12)
+                VStack(spacing: 8) {
+                    toolbar
+                    DrawingToolbar(controller: canvas)
+                }
+                .padding(.top, 12)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .onAppear { canvasSize = geo.size }
+            .onChange(of: geo.size) { canvasSize = $0 }
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .alert(
@@ -73,22 +75,12 @@ struct AnnotationCanvasView: View {
 
     private var toolbar: some View {
         HStack(spacing: 8) {
-            // 되돌리기/다시하기는 스택이 비면 아무 일도 하지 않는다.
-            toolButton(system: "arrow.uturn.backward", label: "되돌리기") {
-                canvasView.undoManager?.undo()
-            }
-            toolButton(system: "arrow.uturn.forward", label: "다시하기") {
-                canvasView.undoManager?.redo()
-            }
-            toolButton(system: "trash", label: "지우기") {
-                // 직접 대입하면 되돌릴 수 없다. 전체 삭제야말로 되돌리기가 필요하다.
-                canvasView.setDrawingUndoably(PKDrawing(), actionName: "전체 지우기")
-            }
-            Toggle(isOn: $shapeSnapEnabled) {
-                Label("도형", systemImage: "square.on.circle")
-            }
-            .toggleStyle(.button)
-            .tint(.blue)
+            toolButton(system: "arrow.uturn.backward", label: "되돌리기") { canvas.undo() }
+                .disabled(!canvas.canUndo)
+            toolButton(system: "arrow.uturn.forward", label: "다시하기") { canvas.redo() }
+                .disabled(!canvas.canRedo)
+            toolButton(system: "trash", label: "지우기") { canvas.clear() }
+                .disabled(canvas.strokes.isEmpty)
 
             Spacer(minLength: 12)
 
@@ -126,17 +118,15 @@ struct AnnotationCanvasView: View {
     private func send() {
         guard !isSending else { return }
 
-        guard !canvasView.drawing.strokes.isEmpty else {
+        guard !canvas.strokes.isEmpty else {
             errorMessage = "먼저 수정할 부분을 표시해 주세요."
             return
         }
 
-        // 레이아웃에서 역산하지 않고 캔버스에 직접 묻는다.
-        // 안전영역까지 확장된 만큼을 놓치면 하단에 그린 획이 잘려 나간다.
         guard let snapshot = CanvasComposer.snapshot(
             background: screenshot,
-            drawing: canvasView.drawing,
-            canvasBounds: canvasView.bounds,
+            strokes: canvas.strokes,
+            canvasSize: canvasSize,
             displayScale: displayScale
         ) else {
             errorMessage = "캔버스를 아직 준비하지 못했습니다."

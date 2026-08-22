@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'canvas/drawing_canvas.dart';
 import 'canvas/drawing_controller.dart';
+import 'screens/connect_screen.dart';
 import 'widgets/drawing_toolbar.dart';
 
 void main() => runApp(const VibexApp());
@@ -14,12 +15,47 @@ class VibexApp extends StatelessWidget {
     return MaterialApp(
       title: 'Vibex',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
-      home: const DrawingScreen(),
+      home: const HomeScreen(),
     );
   }
 }
 
-/// P1: 캔버스 개발용 화면. 이후 웹뷰 라이브 프리뷰 위에 얹는다.
+/// 서버 연결 또는 캔버스 연습장 선택.
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('Vibex', style: Theme.of(context).textTheme.headlineLarge),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              icon: const Icon(Icons.link),
+              label: const Text('PC에 연결'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ConnectScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.draw),
+              label: const Text('캔버스 연습장'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DrawingScreen()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 캔버스 단독 연습장(서버 없이 그리기 테스트).
 class DrawingScreen extends StatefulWidget {
   const DrawingScreen({super.key});
 

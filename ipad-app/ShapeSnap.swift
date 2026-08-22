@@ -1,10 +1,10 @@
 import CoreGraphics
 import Foundation
 
-/// 손그림 획을 깔끔한 도형으로 스냅 (네모·정사각형·원·타원·삼각형·직선).
+/// 손그림 획을 깔끔한 도형으로 스냅 (네모·정사각형·원·타원·삼각형·직선·화살표).
 
 enum ShapeKind {
-    case rectangle, square, circle, ellipse, triangle, line
+    case rectangle, square, circle, ellipse, triangle, line, arrow
 }
 
 struct SnappedShape {
@@ -46,6 +46,21 @@ enum ShapeSnap {
             for p in points { maxDev = max(maxDev, perpDistance(p, first, last)) }
             if lineLen > 0 && maxDev < 0.09 * lineLen {
                 return SnappedShape(kind: .line, outline: [first, last])
+            }
+
+            // ── 화살표: 긴 샤프트 + 끝에 모인 화살촉 꼭짓점들 ──
+            let corners = rdp(points, 0.045 * diag)
+            if corners.count >= 3, corners.count <= 6 {
+                let start = corners[0]
+                let tip = corners[1]
+                let shaft = hypot(tip.x - start.x, tip.y - start.y)
+                let headDists = corners.dropFirst(2).map { hypot($0.x - tip.x, $0.y - tip.y) }
+                let headOk = headDists.allSatisfy { $0 <= 0.45 * shaft }
+                // 우발적 꺾임 제외 — 화살촉이라 부를 만큼은 커야 한다.
+                let headBigEnough = headDists.contains { $0 >= max(0.1 * shaft, 12) }
+                if shaft >= 0.5 * diag, headOk, headBigEnough {
+                    return SnappedShape(kind: .arrow, outline: arrow(from: start, to: tip))
+                }
             }
             return nil
         }
