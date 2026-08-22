@@ -1,4 +1,3 @@
-import PencilKit
 import Foundation
 import SwiftUI
 import WebKit
@@ -13,11 +12,11 @@ struct LivePreviewEditorView: View {
     var allowFingerDrawing = false
 
     @State private var webView = WKWebView(frame: .zero)
-    @State private var canvasView = PKCanvasView()
+    @StateObject private var canvas = DrawingController()
     @State private var drawingMode = false
-    @State private var shapeSnapEnabled = true
-    @State private var tool = DrawTool()
-    @State private var selection: Set<Int> = []
+    @State private var canvasSize: CGSize = .zero
+    // 두 손가락 핀치 확대. 라이브 렌더와 획을 같은 배율로 함께 키운다.
+    @State private var zoom = PinchZoom()
     @State private var note = ""
     @State private var sending = false
     @State private var clientTaskId = UUID().uuidString
@@ -34,22 +33,23 @@ struct LivePreviewEditorView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                LiveWebView(webView: webView, url: previewURL)
-                    .allowsHitTesting(!drawingMode && questions.isEmpty)
+                ZStack {
+                    LiveWebView(webView: webView, url: previewURL)
+                        .allowsHitTesting(!drawingMode && questions.isEmpty)
 
-                PencilCanvas(
-                    canvasView: canvasView,
-                    shapeSnapEnabled: $shapeSnapEnabled,
-                    tool: tool,
-                    allowFingerDrawing: allowFingerDrawing,
-                    isActive: drawingMode
-                )
-                .allowsHitTesting(drawingMode && questions.isEmpty && tool.kind != .lasso)
-                .opacity(drawingMode ? 1 : 0)
-
-                if drawingMode && questions.isEmpty && tool.kind == .lasso {
-                    SelectionOverlay(canvasView: canvasView, selection: $selection)
+                    // 그림은 손 모드에서도 계속 보인다. 입력만 막는다.
+                    DrawingCanvas(
+                        controller: canvas,
+                        allowFingerDrawing: allowFingerDrawing,
+                        onPinch: { phase, scale, focus in
+                            zoom.apply(phase, scale, focus: focus, in: geo.size)
+                        }
+                    )
+                    .allowsHitTesting(drawingMode && questions.isEmpty)
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .scaleEffect(zoom.scale, anchor: zoom.anchor)
+                .clipped()
 
                 if !questions.isEmpty {
                     clarificationLayer(size: geo.size)
@@ -58,14 +58,16 @@ struct LivePreviewEditorView: View {
                 VStack(spacing: 8) {
                     toolbar
                     if drawingMode {
-                        DrawingToolbar(tool: $tool)
+                        DrawingToolbar(controller: canvas)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 12)
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .onChange(of: geo.size) { _ in
+            .onAppear { canvasSize = geo.size }
+            .onChange(of: geo.size) { size in
+                canvasSize = size
                 refreshOverlayFramesAfterLayout()
             }
         }
@@ -84,8 +86,7 @@ struct LivePreviewEditorView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .onChange(of: tool.kind) { kind in if kind != .lasso { selection = [] } }
-        .onChange(of: drawingMode) { active in if !active { selection = [] } }
+        .onChange(of: drawingMode) { active in if !active { canvas.clearSelection() } }
     }
 
     private var toolbar: some View {
@@ -98,16 +99,14 @@ struct LivePreviewEditorView: View {
             .frame(width: 116)
 
             if drawingMode {
-                Button { canvasView.undoManager?.undo() } label: {
+                Button { canvas.undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
                 }
-                Button { canvasView.undoManager?.redo() } label: {
+                .disabled(!canvas.canUndo)
+                Button { canvas.redo() } label: {
                     Image(systemName: "arrow.uturn.forward")
                 }
-                Toggle(isOn: $shapeSnapEnabled) {
-                    Image(systemName: "square.on.circle")
-                }
-                .toggleStyle(.button)
+                .disabled(!canvas.canRedo)
             } else {
                 Button { webView.reload() } label: { Image(systemName: "arrow.clockwise") }
             }
@@ -331,7 +330,7 @@ struct LivePreviewEditorView: View {
 
     private func sendDrawing() {
         guard !sending, activeTaskId == nil else { return }
-        guard !canvasView.drawing.strokes.isEmpty else {
+        guard !canvas.strokes.isEmpty else {
             errorMessage = "먼저 수정할 부분을 그려 주세요."
             return
         }
@@ -341,8 +340,8 @@ struct LivePreviewEditorView: View {
                 let rendered = try await webView.snapshotImage()
                 guard let snapshot = CanvasComposer.snapshot(
                     background: rendered,
-                    drawing: canvasView.drawing,
-                    canvasBounds: canvasView.bounds,
+                    strokes: canvas.strokes,
+                    canvasSize: canvasSize,
                     displayScale: displayScale
                 ) else {
                     throw BridgeError(message: "라이브 화면을 전송 이미지로 만들지 못했습니다.", statusCode: nil)
@@ -357,8 +356,7 @@ struct LivePreviewEditorView: View {
                 )
                 activeTaskId = result.taskId
                 currentStatus = result.status
-                canvasView.drawing = PKDrawing()
-                selection = []
+                canvas.clear()
                 drawingMode = false
                 note = ""
                 clientTaskId = UUID().uuidString

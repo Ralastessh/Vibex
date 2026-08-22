@@ -30,3 +30,6 @@ DRAWING_PROGRESS.md
 # Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋한다)
 *.xcworkspace/xcuserdata/
 ipad-app/**/xcuserdata/
+
+# JetBrains IDE 개인 설정
+.idea/

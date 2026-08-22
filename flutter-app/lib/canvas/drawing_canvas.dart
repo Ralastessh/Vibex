@@ -8,6 +8,7 @@ import 'eraser.dart';
 import 'lasso.dart';
 import 'shape_snap.dart';
 import 'stroke.dart';
+import 'stroke_renderer.dart';
 
 /// 직접 구현한 필기 캔버스.
 /// 스타일러스 필압·팜 리젝션·지우개 2모드·올가미 선택/이동/크기조절 지원.
@@ -323,11 +324,9 @@ class _StrokePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final s in strokes) {
-      _paintStroke(canvas, s.kind, s.color, s.width, s.points);
-    }
+    paintStrokes(canvas, strokes);
     if (current.isNotEmpty) {
-      _paintStroke(canvas, tool.kind, tool.color, tool.width, current);
+      paintStroke(canvas, tool.kind, tool.color, tool.width, current);
     }
     if (eraserAt != null) {
       // 지우개 위치 표시.
@@ -383,40 +382,6 @@ class _StrokePainter extends CustomPainter {
         canvas.drawPath(metric.extractPath(d, min(d + 6, metric.length)), paint);
         d += 11;
       }
-    }
-  }
-
-  void _paintStroke(Canvas canvas, PenKind kind, Color color, double width,
-      List<StrokePoint> points) {
-    if (points.length < 2) return;
-
-    if (kind == PenKind.marker) {
-      // 형광펜: 굵고 반투명, 균일 굵기.
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = color.withValues(alpha: 0.35)
-        ..strokeWidth = max(width * 3, 16);
-      final path = Path()
-        ..moveTo(points.first.offset.dx, points.first.offset.dy);
-      for (final p in points.skip(1)) {
-        path.lineTo(p.offset.dx, p.offset.dy);
-      }
-      canvas.drawPath(path, paint);
-      return;
-    }
-
-    // 펜: 필압으로 구간별 굵기를 바꾼 짧은 선분들.
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    for (var i = 1; i < points.length; i++) {
-      final a = points[i - 1], b = points[i];
-      final pressure = (a.pressure + b.pressure) / 2;
-      paint.strokeWidth = width * (0.5 + 0.9 * pressure);
-      canvas.drawLine(a.offset, b.offset, paint);
     }
   }
 

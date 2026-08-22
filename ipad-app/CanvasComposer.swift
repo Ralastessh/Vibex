@@ -1,4 +1,3 @@
-import PencilKit
 import UIKit
 
 /// 실제 WKWebView 렌더와 손그림 주석을 이미지로 내보낸다.
@@ -6,10 +5,6 @@ import UIKit
 /// 서버는 렌더(`renderedViewImage`)와 획(`canvasImage`)을 **따로** 저장한 뒤
 /// 선택된 PC LLM CLI 세션에 직접 첨부한다. 두 장은 같은 좌표계·픽셀 크기다.
 enum CanvasComposer {
-
-    /// 업로드 한 장의 최대 변(픽셀). 서버 상한은 넉넉하지만, 큰 이미지는
-    /// 업로드가 느려지고 해석 토큰만 늘 뿐 정확도에 도움이 되지 않는다.
-    static let maxPixelDimension: CGFloat = 2048
 
     struct ImagePayload {
         let data: Data
@@ -27,24 +22,23 @@ enum CanvasComposer {
     // MARK: - 전송용
 
     /// - Parameters:
-    ///   - canvasBounds: `PKCanvasView.bounds`. 레이아웃에서 역산하지 말 것 —
-    ///     안전영역 확장 때문에 캔버스와 어긋나 하단 획이 잘린다.
+    ///   - canvasSize: 캔버스 뷰의 크기. 획 좌표가 이 좌표계에 있어야 한다.
     ///   - displayScale: `@Environment(\.displayScale)`. `UIScreen.main`은
     ///     분할 화면·외부 디스플레이에서 틀린 값을 준다.
     static func snapshot(
         background: UIImage?,
-        drawing: PKDrawing,
-        canvasBounds: CGRect,
+        strokes: [Stroke],
+        canvasSize: CGSize,
         displayScale: CGFloat
     ) -> Snapshot? {
-        let size = canvasBounds.size
-        guard size.width > 0, size.height > 0 else { return nil }
+        guard canvasSize.width > 0, canvasSize.height > 0 else { return nil }
 
-        let scale = outputScale(for: size, displayScale: displayScale)
+        let scale = StrokeRenderer.outputScale(for: canvasSize, displayScale: displayScale)
 
-        // 획 — 배경 없이. PKDrawing이 칠하지 않은 곳은 투명하게 남는다.
-        let strokes = drawing.image(from: canvasBounds, scale: scale)
-        guard let canvasData = strokes.pngData() else { return nil }
+        // 획 — 배경 없이. 칠하지 않은 곳은 투명하게 남는다.
+        guard let canvasData = StrokeRenderer.pngData(
+            strokes: strokes, size: canvasSize, displayScale: displayScale
+        ) else { return nil }
         let canvas = ImagePayload(
             data: canvasData, mimeType: "image/png", filename: "canvas.png"
         )
@@ -52,8 +46,8 @@ enum CanvasComposer {
         // 배경 — 화면에 보이는 것과 같은 크롭. 사진에 가까우므로 JPEG가 훨씬 작다.
         var base: ImagePayload?
         if let background {
-            let image = renderer(size: size, scale: scale, opaque: true).image { _ in
-                drawAspectFill(background, in: CGRect(origin: .zero, size: size))
+            let image = renderer(size: canvasSize, scale: scale, opaque: true).image { _ in
+                drawAspectFill(background, in: CGRect(origin: .zero, size: canvasSize))
             }
             if let data = image.jpegData(compressionQuality: 0.9) {
                 base = ImagePayload(
@@ -65,7 +59,9 @@ enum CanvasComposer {
         return Snapshot(
             canvas: canvas,
             base: base,
-            pixelSize: CGSize(width: size.width * scale, height: size.height * scale)
+            pixelSize: CGSize(
+                width: canvasSize.width * scale, height: canvasSize.height * scale
+            )
         )
     }
 
@@ -75,41 +71,32 @@ enum CanvasComposer {
     /// 서버 전송에는 쓰지 말 것 — 렌더와 획을 분리하는 `snapshot(...)`을 쓴다.
     static func compose(
         background: UIImage,
-        drawing: PKDrawing,
-        canvasBounds: CGRect,
+        strokes: [Stroke],
+        canvasSize: CGSize,
         displayScale: CGFloat
     ) -> UIImage {
-        let size = canvasBounds.size
-        let scale = outputScale(for: size, displayScale: displayScale)
-        return renderer(size: size, scale: scale, opaque: true).image { _ in
-            drawAspectFill(background, in: CGRect(origin: .zero, size: size))
-            drawing.image(from: canvasBounds, scale: scale)
-                .draw(in: CGRect(origin: .zero, size: size))
+        let scale = StrokeRenderer.outputScale(for: canvasSize, displayScale: displayScale)
+        return renderer(size: canvasSize, scale: scale, opaque: true).image { context in
+            drawAspectFill(background, in: CGRect(origin: .zero, size: canvasSize))
+            StrokeRenderer.draw(strokes, in: context.cgContext)
         }
     }
 
     static func pngData(
         background: UIImage,
-        drawing: PKDrawing,
-        canvasBounds: CGRect,
+        strokes: [Stroke],
+        canvasSize: CGSize,
         displayScale: CGFloat
     ) -> Data? {
         compose(
             background: background,
-            drawing: drawing,
-            canvasBounds: canvasBounds,
+            strokes: strokes,
+            canvasSize: canvasSize,
             displayScale: displayScale
         ).pngData()
     }
 
     // MARK: - 내부
-
-    private static func outputScale(for size: CGSize, displayScale: CGFloat) -> CGFloat {
-        let longest = max(size.width, size.height)
-        guard longest > 0 else { return 1 }
-        let scale = displayScale > 0 ? displayScale : 2
-        return max(1, min(scale, maxPixelDimension / longest))
-    }
 
     private static func renderer(
         size: CGSize, scale: CGFloat, opaque: Bool

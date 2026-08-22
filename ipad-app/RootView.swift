@@ -58,6 +58,7 @@ final class AppModel: ObservableObject {
 struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var showSettings = false
+    @State private var showSandbox = false
 
     var body: some View {
         NavigationStack {
@@ -71,11 +72,18 @@ struct RootView: View {
             .navigationTitle("Vibex")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    // 서버 없이 필기 도구만 시험하는 연습장.
+                    Button { showSandbox = true } label: { Image(systemName: "scribble") }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showSettings = true } label: { Image(systemName: "gear") }
                 }
             }
             .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) {
                 SettingsView()
+            }
+            .fullScreenCover(isPresented: $showSandbox) {
+                DrawingSandboxView()
             }
             .task { await model.refresh() }
         }
