@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A11C0F000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A11C0F000000000000000002 /* Assets.xcassets */; };
 		237B57F81CC0BB6BC0410A55 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_85DC3544-B157-48F8-AFBF-3BF5923AF747" /* RootView.swift */; };
 		2D80E7B2B4D24C62726B26B8 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_9380498A-0D48-4314-9BD2-CC0A9E42866D" /* BridgeClient.swift */; };
 		35D46777A4EF38704D211EAB /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F6B480B4-46D9-4817-B0F5-ED5DAF6BF8DB" /* AnnotationCanvasView.swift */; };
@@ -23,6 +24,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A11C0F000000000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8443143F55201380A755EDB2 /* Vibex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vibex.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		"TEMP_20421B30-E20D-41D1-9EE2-951F61FD5221" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
 		"TEMP_3CE63969-C53C-466C-96D1-9B21CFE9F996" /* ProjectBlueprintView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBlueprintView.swift; sourceTree = "<group>"; };
@@ -52,6 +54,7 @@
 		8453CE48303C2D630063CEB6 /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
+				A11C0F000000000000000002 /* Assets.xcassets */,
 				"TEMP_F6B480B4-46D9-4817-B0F5-ED5DAF6BF8DB" /* AnnotationCanvasView.swift */,
 				"TEMP_9380498A-0D48-4314-9BD2-CC0A9E42866D" /* BridgeClient.swift */,
 				"TEMP_EA7544E5-C461-4635-9984-006D463BD179" /* CanvasComposer.swift */,
@@ -86,6 +89,7 @@
 			buildConfigurationList = 3219100FFB8ED59B406A2F45 /* Build configuration list for PBXNativeTarget "Vibex" */;
 			buildPhases = (
 				177EE82F71ADB1D83EE42AA4 /* Sources */,
+				A11C0F000000000000000003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -130,6 +134,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A11C0F000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A11C0F000000000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		177EE82F71ADB1D83EE42AA4 /* Sources */ = {

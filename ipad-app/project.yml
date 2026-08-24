@@ -40,6 +40,7 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         # 개발용 http Bridge 허용(ATS). 실배포 전에 https로 좁힐 것.
