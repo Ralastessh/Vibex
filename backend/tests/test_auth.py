@@ -26,6 +26,26 @@ def test_health_leaks_nothing_sensitive(client):
     assert "repoPath" not in body
 
 
+def test_tailscale_devices_returns_online_pc_candidates(client, monkeypatch):
+    from src.api import health
+
+    monkeypatch.setattr(
+        health,
+        "_online_tailscale_devices",
+        lambda: [
+            {
+                "name": "studio-mac",
+                "dnsName": "studio-mac.example.ts.net",
+                "online": True,
+                "isSelf": True,
+            }
+        ],
+    )
+    response = client.get("/api/v1/tailscale/devices", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["devices"][0]["dnsName"] == "studio-mac.example.ts.net"
+
+
 @pytest.mark.parametrize(
     "headers",
     [

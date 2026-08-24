@@ -25,7 +25,7 @@ VS Code Chat의 정보 구조와 상호작용 패턴을 VIBEX UI로 재구현합
 Copilot의 `credits` 단위가 없으므로 존재하지 않는 크레딧을 추정해 표시하지 않습니다.
 
 확장은 Bridge를 `127.0.0.1:8787`에 자동 실행합니다. 물리 iPad는 같은 tailnet에
-로그인한 뒤 MagicDNS 주소 `http://vibex-pc:8788`을 사용합니다. Tailscale 인증키는
+로그인한 뒤 각 PC의 고유 MagicDNS 주소와 8788 포트를 사용합니다. Tailscale 인증키는
 Vibex에 입력하거나 저장하지 않습니다.
 
 ## 독립성

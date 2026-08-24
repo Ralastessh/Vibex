@@ -109,6 +109,20 @@ def public_url(host: str, port: int) -> str:
     return urlunsplit(("http", netloc, "/", "", ""))
 
 
+def vite_allowed_host(public_host: str) -> str:
+    """Vite가 허용할 현재 tailnet 호스트 범위를 계산한다.
+
+    MagicDNS FQDN은 ``machine.tailnet.ts.net`` 형태다. 머신 이름을 하나씩
+    박아두지 않고 현재 tailnet suffix만 허용하면 PC 이름이 바뀌거나 다른
+    VIBEX PC를 선택해도 프로젝트 설정을 수정할 필요가 없다.
+    """
+    host = public_host.strip().strip("[]").rstrip(".").lower()
+    labels = host.split(".")
+    if len(labels) >= 3 and labels[-2:] == ["ts", "net"]:
+        return "." + ".".join(labels[1:])
+    return host
+
+
 class PreviewManager:
     """프로젝트 dev server를 PC에서 시작하고 iPad가 열 URL을 관리한다."""
 
@@ -148,7 +162,14 @@ class PreviewManager:
                 )
 
             env = os.environ.copy()
-            env.update({"HOST": "0.0.0.0", "PORT": str(port), "BROWSER": "none"})
+            env.update({
+                "HOST": "0.0.0.0",
+                "PORT": str(port),
+                "BROWSER": "none",
+                # Vite 5+의 공식 추가 호스트 통로. 프로젝트의 vite.config를
+                # 건드리지 않고 현재 tailnet의 모든 MagicDNS PC 이름을 허용한다.
+                "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": vite_allowed_host(public_host),
+            })
             log_file = tempfile.TemporaryFile(mode="w+b")
             try:
                 process = await asyncio.create_subprocess_exec(

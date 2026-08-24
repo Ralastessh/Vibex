@@ -21,12 +21,16 @@ final class AppModel: ObservableObject {
         #if targetEnvironment(simulator)
         return "http://127.0.0.1:8787"
         #else
-        return "http://vibex-pc:8788"
+        return UserDefaults.standard.string(forKey: "bridgeBaseURL") ?? ""
         #endif
     }
 
     var isConfigured: Bool {
+        #if targetEnvironment(simulator)
         return true
+        #else
+        return !baseURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        #endif
     }
 
     var client: BridgeClient {
@@ -58,28 +62,55 @@ final class AppModel: ObservableObject {
 struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var showSettings = false
+    @State private var showNewProject = false
+    @State private var libraryFilter: ProjectLibraryFilter? = .all
 
     var body: some View {
-        NavigationStack {
-            Group {
+        NavigationSplitView {
+            List(selection: $libraryFilter) {
+                Section {
+                    Label("모든 프로젝트", systemImage: "square.grid.2x2")
+                        .tag(ProjectLibraryFilter.all)
+                    Label("최근 작업", systemImage: "clock")
+                        .tag(ProjectLibraryFilter.recent)
+                    Label("작업 중", systemImage: "bolt.horizontal.circle")
+                        .tag(ProjectLibraryFilter.active)
+                }
+            }
+            .navigationTitle("Vibex")
+            .listStyle(.sidebar)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showSettings = true } label: { Image(systemName: "gear") }
+                }
+            }
+        } detail: {
+            NavigationStack {
                 if model.isConfigured {
-                    ProjectListView(model: model)
+                    ProjectListView(
+                        model: model,
+                        filter: libraryFilter ?? .all,
+                        createProject: { showNewProject = true }
+                    )
                 } else {
                     NeedsSetupView { showSettings = true }
                 }
             }
-            .navigationTitle("Vibex")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gear") }
-                }
-            }
-            .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) {
-                SettingsView()
-            }
-            .task { await model.refresh() }
         }
+        .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) {
+            SettingsView()
+        }
+        .fullScreenCover(isPresented: $showNewProject) {
+            NewProjectFlowView(model: model) { _ in
+                Task { await model.refresh() }
+            }
+        }
+        .task { await model.refresh() }
     }
+}
+
+enum ProjectLibraryFilter: String, Hashable {
+    case all, recent, active
 }
 
 // MARK: - 연결 설정
@@ -87,19 +118,30 @@ struct RootView: View {
 struct SettingsView: View {
     private enum ConnectionState {
         case checking
-        case connected(projects: Int)
+        case connected(name: String, projects: Int)
         case failed(String)
     }
 
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
-    @State private var connectionState: ConnectionState = .checking
+    private struct AvailableBridge: Identifiable, Sendable {
+        let url: URL
+        let name: String
+        let projects: Int
+        var id: String { url.absoluteString }
+    }
 
-    private var connectionURL: URL {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("bridgeBaseURL") private var selectedBridgeURL = ""
+    @AppStorage("bridgeKnownURLs") private var knownBridgeURLsJSON = "[]"
+    @State private var connectionState: ConnectionState = .checking
+    @State private var availableBridges: [AvailableBridge] = []
+    @State private var manualHost = ""
+    @State private var discovering = false
+
+    private var connectionURL: URL? {
         #if targetEnvironment(simulator)
-        return URL(string: "http://127.0.0.1:8787")!
+        return URL(string: "http://127.0.0.1:8787")
         #else
-        return URL(string: "http://vibex-pc:8788")!
+        return normalizedBridgeURL(selectedBridgeURL)
         #endif
     }
 
@@ -113,8 +155,8 @@ struct SettingsView: View {
                             ProgressView()
                             Text("실제 연결 확인 중…")
                         }
-                    case let .connected(projects):
-                        Label("연결됨 · 프로젝트 \(projects)개", systemImage: "checkmark.circle.fill")
+                    case let .connected(name, projects):
+                        Label("\(name)에 연결됨 · 프로젝트 \(projects)개", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     case let .failed(message):
                         Label("연결되지 않음", systemImage: "xmark.circle.fill")
@@ -126,10 +168,11 @@ struct SettingsView: View {
                     Text("시뮬레이터는 http://127.0.0.1:8787을 자동으로 사용합니다.")
                         .font(.caption).foregroundStyle(.secondary)
                     #else
-                    Label("MagicDNS 자동 연결", systemImage: "network")
-                    Text("http://vibex-pc:8788")
-                        .font(.callout.monospaced()).textSelection(.enabled)
-                    Text("iPad의 Tailscale 앱에서 Mac과 같은 tailnet으로 로그인하면 Vibex가 이 주소로 바로 접속합니다.")
+                    if !selectedBridgeURL.isEmpty {
+                        Text(selectedBridgeURL)
+                            .font(.callout.monospaced()).textSelection(.enabled)
+                    }
+                    Text("각 PC의 고유 MagicDNS 이름을 유지합니다. 선택한 PC만 이 앱의 연결 대상으로 사용됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                     #endif
 
@@ -137,19 +180,69 @@ struct SettingsView: View {
                         Task { await checkConnection() }
                     }
                 }
-                Section("캔버스") {
-                    Toggle("손가락으로 그리기(시뮬레이터용)", isOn: $allowFingerDrawing)
+
+                #if !targetEnvironment(simulator)
+                Section("온라인 VIBEX PC") {
+                    if discovering {
+                        HStack {
+                            ProgressView()
+                            Text("tailnet의 VIBEX PC를 확인하는 중…")
+                        }
+                    } else if availableBridges.isEmpty {
+                        Text("발견된 PC가 없습니다. 처음 연결하는 PC라면 아래에서 MagicDNS 이름을 한 번 추가해 주세요.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(availableBridges) { bridge in
+                            Button {
+                                select(bridge)
+                            } label: {
+                                HStack {
+                                    Label(bridge.name, systemImage: "desktopcomputer")
+                                    Spacer()
+                                    Text("프로젝트 \(bridge.projects)개")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    if selectedBridgeURL == bridge.url.absoluteString {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Button("온라인 목록 새로고침") {
+                        Task { await discoverAvailableBridges() }
+                    }
                 }
+
+                Section {
+                    TextField("예: joonsu-imac 또는 전체 MagicDNS 주소", text: $manualHost)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button("연결하고 목록에 추가") {
+                        Task { await addManualBridge() }
+                    }
+                    .disabled(manualHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } header: {
+                    Text("PC 직접 추가")
+                } footer: {
+                    Text("Tailscale 앱의 기기 목록에 표시되는 이름을 입력하면 됩니다. 포트를 생략하면 8788을 사용합니다.")
+                }
+                #endif
+
             }
             .navigationTitle("연결 설정")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("완료") { dismiss() } }
             }
-            .task { await checkConnection() }
+            .task { await prepareConnections() }
         }
     }
 
     private func checkConnection() async {
+        guard let connectionURL else {
+            connectionState = .failed("연결할 PC를 선택하거나 MagicDNS 이름을 추가해 주세요.")
+            return
+        }
         connectionState = .checking
         do {
             let health = try await BridgeClient(baseURL: connectionURL).health()
@@ -157,10 +250,128 @@ struct SettingsView: View {
                 connectionState = .failed("Vibex 백엔드가 정상 상태를 반환하지 않았습니다.")
                 return
             }
-            connectionState = .connected(projects: health.projects)
+            remember(connectionURL)
+            connectionState = .connected(
+                name: connectionURL.host ?? connectionURL.absoluteString,
+                projects: health.projects
+            )
         } catch {
             connectionState = .failed(error.localizedDescription)
         }
+    }
+
+    private func prepareConnections() async {
+        await discoverAvailableBridges()
+        await checkConnection()
+    }
+
+    private func select(_ bridge: AvailableBridge) {
+        selectedBridgeURL = bridge.url.absoluteString
+        Task { await checkConnection() }
+    }
+
+    private func addManualBridge() async {
+        guard let url = normalizedBridgeURL(manualHost) else {
+            connectionState = .failed("MagicDNS 이름 또는 주소 형식이 올바르지 않습니다.")
+            return
+        }
+        selectedBridgeURL = url.absoluteString
+        remember(url)
+        manualHost = ""
+        await checkConnection()
+        await discoverAvailableBridges()
+    }
+
+    private func discoverAvailableBridges() async {
+        guard !discovering else { return }
+        discovering = true
+        defer { discovering = false }
+
+        var urls = knownBridgeURLs.compactMap(normalizedBridgeURL)
+        if let selected = normalizedBridgeURL(selectedBridgeURL) { urls.append(selected) }
+        // 시뮬레이터도 로컬 Bridge를 discovery 기준점으로 사용한다. 이전에는
+        // 여기서 즉시 반환하여 온라인 PC 목록이 절대로 표시되지 않았다.
+        if let connectionURL { urls.append(connectionURL) }
+        urls = unique(urls)
+
+        // 기억된 PC 중 하나만 살아 있어도 그 Bridge를 통해 현재 온라인인
+        // tailnet PC 후보를 받아온다. 이후 각 후보의 VIBEX health를 직접 검증한다.
+        var discoverySource: URL?
+        var online: [AvailableBridge] = []
+        for url in urls {
+            if let bridge = await probe(url) {
+                online.append(bridge)
+                discoverySource = discoverySource ?? url
+            }
+        }
+        if let discoverySource,
+           let devices = try? await shortClient(discoverySource).tailscaleDevices() {
+            urls.append(contentsOf: devices.compactMap(\.bridgeURL))
+        }
+
+        online = []
+        await withTaskGroup(of: AvailableBridge?.self) { group in
+            for url in unique(urls) {
+                group.addTask { await probe(url) }
+            }
+            for await result in group {
+                if let result { online.append(result) }
+            }
+        }
+        availableBridges = online.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        for bridge in availableBridges { remember(bridge.url) }
+    }
+
+    private func probe(_ url: URL) async -> AvailableBridge? {
+        guard let health = try? await shortClient(url).health(), health.status == "ok" else {
+            return nil
+        }
+        return AvailableBridge(
+            url: url,
+            name: url.host?.split(separator: ".").first.map(String.init) ?? url.absoluteString,
+            projects: health.projects
+        )
+    }
+
+    private func shortClient(_ url: URL) -> BridgeClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 2.5
+        configuration.timeoutIntervalForResource = 3.5
+        return BridgeClient(baseURL: url, session: URLSession(configuration: configuration))
+    }
+
+    private func normalizedBridgeURL(_ input: String) -> URL? {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        let candidate = value.contains("://") ? value : "http://\(value)"
+        guard var components = URLComponents(string: candidate), components.host != nil else {
+            return nil
+        }
+        if components.scheme == nil { components.scheme = "http" }
+        if components.port == nil { components.port = 8788 }
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    private var knownBridgeURLs: [String] {
+        guard let data = knownBridgeURLsJSON.data(using: .utf8),
+              let urls = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return urls
+    }
+
+    private func remember(_ url: URL) {
+        var urls = knownBridgeURLs
+        if !urls.contains(url.absoluteString) { urls.append(url.absoluteString) }
+        guard let data = try? JSONEncoder().encode(urls),
+              let json = String(data: data, encoding: .utf8) else { return }
+        knownBridgeURLsJSON = json
+    }
+
+    private func unique(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.absoluteString).inserted }
     }
 }
 
@@ -168,37 +379,95 @@ struct SettingsView: View {
 
 struct ProjectListView: View {
     @ObservedObject var model: AppModel
+    let filter: ProjectLibraryFilter
+    let createProject: () -> Void
+    @State private var searchText = ""
+
+    private var visibleProjects: [ProjectView] {
+        let searched = model.projects.filter {
+            searchText.isEmpty || $0.displayName.localizedCaseInsensitiveContains(searchText)
+        }
+        switch filter {
+        case .active:
+            return searched.filter { $0.status == .busy }
+        default:
+            return searched
+        }
+    }
 
     var body: some View {
         List {
             if let error = model.error {
                 Text(error).foregroundStyle(.red).font(.footnote)
             }
-            ForEach(model.projects) { project in
+            Section {
+            ForEach(visibleProjects) { project in
                 NavigationLink {
-                    ConversationListView(model: model, project: project)
+                    ProjectWorkspaceView(model: model, project: project)
                 } label: {
-                    HStack {
-                        Circle().fill(color(project.status)).frame(width: 10, height: 10)
-                        VStack(alignment: .leading) {
-                            Text(project.displayName)
+                    HStack(spacing: 14) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.accentColor.opacity(0.12))
+                            .frame(width: 54, height: 54)
+                            .overlay {
+                                Image(systemName: "pencil.and.outline")
+                                    .font(.title3).foregroundStyle(.tint)
+                            }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(project.displayName).font(.headline)
                             if let reason = project.reason {
                                 Text(reason).font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Text(project.agent == "codex-cli" ? "Codex" : "Claude Code")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
-                        Text(label(project.status)).font(.caption).foregroundStyle(.secondary)
+                        Label(label(project.status), systemImage: "circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(color(project.status))
                     }
+                    .padding(.vertical, 5)
                 }
                 .disabled(project.status == .unavailable)
             }
+            } header: {
+                Text(sectionTitle)
+            }
         }
         .overlay {
-            if model.projects.isEmpty && !model.loading {
-                Text("등록된 프로젝트가 없습니다.").foregroundStyle(.secondary)
+            if visibleProjects.isEmpty && !model.loading {
+                VStack(spacing: 12) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.largeTitle).foregroundStyle(.secondary)
+                    Text("프로젝트가 없습니다").font(.headline)
+                    Text("새 프로젝트를 만들고 화면·워크플로를 Apple Pencil로 설계해 보세요.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Button("새 프로젝트", action: createProject).buttonStyle(.borderedProminent)
+                }
+                .multilineTextAlignment(.center)
+                .padding()
+            }
+        }
+        .navigationTitle(sectionTitle)
+        .searchable(text: $searchText, prompt: "프로젝트 검색")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: createProject) {
+                    Label("새 프로젝트", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
         .refreshable { await model.refresh() }
+    }
+
+    private var sectionTitle: String {
+        switch filter {
+        case .all: return "모든 프로젝트"
+        case .recent: return "최근 작업"
+        case .active: return "작업 중"
+        }
     }
 
     private func color(_ s: ProjectView.Status) -> Color {
@@ -438,7 +707,6 @@ struct ComposeView: View {
     let conversationId: String
     let agentId: String
 
-    @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
     @State private var preview: PreviewView?
     @State private var loading = false
     @State private var errorText: String?
@@ -451,8 +719,7 @@ struct ComposeView: View {
                     projectId: project.projectId,
                     conversationId: conversationId,
                     agentId: agentId,
-                    previewURL: preview.url,
-                    allowFingerDrawing: allowFingerDrawing
+                    previewURL: preview.url
                 )
             } else {
                 VStack(spacing: 16) {

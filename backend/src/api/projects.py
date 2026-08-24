@@ -10,6 +10,7 @@ from src.agents.codex_app_server import (
 from src.agents.codex_cli import CodexCLIAdapter, CodexThreadOutsideProjectError
 from src.agents.registry import available_agents, build_adapter
 from src.auth.device import RequireDevice
+from src.api.health import tailscale_self_dns_name
 from src.projects.registry import (
     DuplicateProjectError,
     Project,
@@ -339,7 +340,19 @@ async def start_preview(project_id: str, request: Request) -> PreviewView:
     # 로컬 시뮬레이터/VS Code에는 요청의 localhost를 돌려준다.
     configured_host = request.app.state.settings.preview_public_host.strip()
     tailscale_login = request.headers.get("tailscale-user-login", "").strip()
-    host = configured_host if configured_host and tailscale_login else request.url.hostname
+    requested_host = request.url.hostname
+    # 짧은 MagicDNS 이름으로 Bridge에 접속해도 프리뷰는 정식 FQDN을 쓴다.
+    # 그래야 Vite에 자동 전달한 tailnet suffix 허용값과 Host가 일치한다.
+    canonical_tailscale_host = (
+        tailscale_self_dns_name()
+        if requested_host not in {None, "127.0.0.1", "localhost", "testserver"}
+        else None
+    )
+    host = (
+        configured_host
+        if configured_host and tailscale_login
+        else canonical_tailscale_host or requested_host
+    )
     if not host:
         raise HTTPException(status_code=500, detail="iPad에서 접근할 PC 호스트를 결정하지 못했습니다.")
     try:

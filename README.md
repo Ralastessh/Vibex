@@ -172,8 +172,9 @@ cd backend
 ```
 
 Mac과 물리 iPad의 Tailscale 앱에 같은 tailnet으로 로그인합니다. VIBEX 패널은
-Mac의 Tailscale 머신 이름을 `vibex-pc`로 맞추고 Serve를 자동 구성합니다. iPad는
-주소 입력 없이 MagicDNS의 `http://vibex-pc:8788`로 바로 접속합니다. iPad
+각 Mac의 기존 고유 MagicDNS 이름을 유지한 채 Serve를 자동 구성합니다. iPad 연결
+설정은 실제 VIBEX health 응답이 오는 온라인 PC를 보여 주며, 선택한 PC를 기억합니다.
+처음 보는 PC만 Tailscale 기기 목록의 MagicDNS 이름을 한 번 직접 추가합니다. iPad
 시뮬레이터는 Tailscale 없이 `http://127.0.0.1:8787`에 자동 연결됩니다.
 작업 루트나 `projects.local.json`을 바꾼 뒤에는 Bridge를 재시작해야 합니다.
 

@@ -808,6 +808,31 @@ async def test_drawing_runs_the_pc_cli_directly(api):
     assert "LLM CLI" in api.app.state.adapter.calls[0][2]
 
 
+async def test_ipad_fast_visual_profile_reduces_reasoning_and_skips_forced_tests(api):
+    response = api.post(
+        "/api/v1/tasks",
+        headers=AUTH,
+        data={
+            "projectId": "demo",
+            "mode": "visual-fast",
+            "typedNote": "버튼 간격을 맞춰줘",
+            "effort": "low",
+        },
+        files={
+            "canvasImage": ("c.png", b"drawing", "image/png"),
+            "renderedViewImage": ("view.jpg", b"rendered", "image/jpeg"),
+        },
+    )
+    assert response.status_code == 202
+    await _settle(api)
+
+    call = api.app.state.adapter.calls[-1]
+    assert call[5]["effort"] == "low"
+    assert call[5]["speedMode"] is None
+    assert "빠른 iPad 반복 작업" in call[2]
+    assert "관련 테스트를 실행한다" not in call[2]
+
+
 def test_drawing_requires_the_live_render(api):
     r = api.post(
         "/api/v1/tasks", headers=AUTH, data={"projectId": "demo"},

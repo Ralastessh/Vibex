@@ -466,7 +466,11 @@ async def create_task(
             task.task_id,
             execution_project,
             attach_shared_context(
-                build_visual(typed_note=typedNote, test_commands=project.test_commands),
+                build_visual(
+                    typed_note=typedNote,
+                    test_commands=project.test_commands,
+                    latency_optimized=(mode == "visual-fast"),
+                ),
                 shared_context,
             ),
             session_id=task.thread_id,

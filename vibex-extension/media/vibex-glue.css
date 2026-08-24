@@ -61,6 +61,14 @@ body > .interactive-session {
   overflow-x: hidden;
 }
 
+/* Native Chat normally puts the welcome container in a flex list host. The
+   sidebar transcript is a lightweight scroll host, so give its sole empty
+   state the same available height without changing any visual tokens. */
+.vibex-list > .chat-welcome-view-container {
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
 /* Stand-in for the Monaco editor inside .chat-editor-container: completely
    transparent; all box styling comes from .chat-input-container rules. */
 .chat-editor-container textarea.vibex-input {
@@ -69,11 +77,16 @@ body > .interactive-session {
   outline: none;
   resize: none;
   background: transparent;
-  color: var(--vscode-input-foreground);
+  /* 글자는 뒤의 미러(.vibex-input-mirror)가 그린다. 캐럿·선택 영역만 여기서. */
+  color: transparent;
+  caret-color: var(--vscode-input-foreground);
+  position: relative;
   font-family: var(--vscode-chat-font-family);
   font-size: 13px;
   line-height: 1.5;
-  padding: 0;
+  /* Monaco's chat editor keeps the first baseline away from the rounded top
+     edge. The textarea stand-in must provide that inset itself. */
+  padding: 8px 0 0;
   margin: 0;
   min-height: 36px;
   max-height: 240px;
@@ -126,11 +139,9 @@ body > .interactive-session {
 
 /* The `/` `@` assist popup reuses the menu chrome above, but anchors to the
    composer instead of the viewport so it follows the box as it grows. */
+/* Position/size are set from JS (positionAssist) in viewport space, because
+   the composer clips overflow and cannot host the popup. */
 .vibex-assist {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 4px);
   min-width: 0;
   max-height: 220px;
 }
@@ -176,3 +187,68 @@ body > .interactive-session {
   color: var(--vscode-icon-foreground);
 }
 
+
+/* ── 입력 토큰 데코레이션 미러 ─────────────────────────────────────
+   textarea 는 부분 스타일이 불가능하므로, 동일한 글꼴·줄바꿈 규칙으로
+   텍스트를 다시 그리는 레이어. 토큰 색은 네이티브 chat-agent-command 가
+   쓰는 것과 같은 테마 토큰(chat.slashCommandBackground/Foreground)이다. */
+.interactive-input-editor {
+  position: relative;
+}
+.vibex-input-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-chat-font-family);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 0 0;
+  box-sizing: border-box;
+}
+.vibex-input-mirror .vibex-token {
+  background-color: var(--vscode-chat-slashCommandBackground);
+  color: var(--vscode-chat-slashCommandForeground);
+  border-radius: 4px;
+}
+
+/* The extracted Codicon rule intentionally uses `steps(30)`, which is visible
+   as a stutter on the response ring in the narrow WebView. Keep the same icon
+   and rotation duration family, but interpolate every frame continuously. */
+.vibex-list .codicon-loading.codicon-modifier-spin {
+  animation: codicon-spin 1.2s linear infinite;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* 첨부 칩 내부: 칩 박스 자체는 네이티브 규칙이 그린다. */
+.chat-attached-context-attachment .monaco-icon-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px 0 3px;
+  min-width: 0;
+}
+.chat-attached-context-attachment .monaco-icon-label .codicon {
+  font-size: 12px;
+}
+.chat-attached-context-attachment .vibex-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attached-context-attachment .vibex-pill-remove {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.chat-attached-context-attachment .vibex-pill-remove:hover {
+  opacity: 1;
+}
+.chat-attached-context-attachment .vibex-pill-remove .codicon {
+  font-size: 12px;
+}

@@ -10,15 +10,10 @@ struct LivePreviewEditorView: View {
     let conversationId: String
     let agentId: String
     let previewURL: URL
-    var allowFingerDrawing = false
 
     @State private var webView = WKWebView(frame: .zero)
-    @State private var canvasView = PKCanvasView()
-    @State private var drawingMode = false
-    @State private var shapeSnapEnabled = true
+    @State private var canvasView = PencilPassthroughCanvasView()
     @State private var tool = DrawTool()
-    @State private var selection: Set<Int> = []
-    @State private var note = ""
     @State private var sending = false
     @State private var clientTaskId = UUID().uuidString
     @State private var activeTaskId: String?
@@ -35,21 +30,17 @@ struct LivePreviewEditorView: View {
         GeometryReader { geo in
             ZStack {
                 LiveWebView(webView: webView, url: previewURL)
-                    .allowsHitTesting(!drawingMode && questions.isEmpty)
+                    // 드로잉 모드에서도 손가락은 아래 WebView를 스크롤·탭한다.
+                    // Apple Pencil만 위 PencilPassthroughCanvasView가 가져간다.
+                    .allowsHitTesting(questions.isEmpty)
 
                 PencilCanvas(
                     canvasView: canvasView,
-                    shapeSnapEnabled: $shapeSnapEnabled,
                     tool: tool,
-                    allowFingerDrawing: allowFingerDrawing,
-                    isActive: drawingMode
+                    allowFingerDrawing: false,
+                    isActive: true
                 )
-                .allowsHitTesting(drawingMode && questions.isEmpty && tool.kind != .lasso)
-                .opacity(drawingMode ? 1 : 0)
-
-                if drawingMode && questions.isEmpty && tool.kind == .lasso {
-                    SelectionOverlay(canvasView: canvasView, selection: $selection)
-                }
+                .allowsHitTesting(questions.isEmpty)
 
                 if !questions.isEmpty {
                     clarificationLayer(size: geo.size)
@@ -57,9 +48,7 @@ struct LivePreviewEditorView: View {
 
                 VStack(spacing: 8) {
                     toolbar
-                    if drawingMode {
-                        DrawingToolbar(tool: $tool)
-                    }
+                    DrawingToolbar(tool: $tool)
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 12)
@@ -84,37 +73,17 @@ struct LivePreviewEditorView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .onChange(of: tool.kind) { kind in if kind != .lasso { selection = [] } }
-        .onChange(of: drawingMode) { active in if !active { selection = [] } }
     }
 
     private var toolbar: some View {
         HStack(spacing: 8) {
-            Picker("입력 모드", selection: $drawingMode) {
-                Image(systemName: "hand.point.up.left.fill").tag(false)
-                Image(systemName: "pencil.tip").tag(true)
+            Button { canvasView.undoManager?.undo() } label: {
+                Image(systemName: "arrow.uturn.backward")
             }
-            .pickerStyle(.segmented)
-            .frame(width: 116)
-
-            if drawingMode {
-                Button { canvasView.undoManager?.undo() } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                Button { canvasView.undoManager?.redo() } label: {
-                    Image(systemName: "arrow.uturn.forward")
-                }
-                Toggle(isOn: $shapeSnapEnabled) {
-                    Image(systemName: "square.on.circle")
-                }
-                .toggleStyle(.button)
-            } else {
-                Button { webView.reload() } label: { Image(systemName: "arrow.clockwise") }
+            Button { canvasView.undoManager?.redo() } label: {
+                Image(systemName: "arrow.uturn.forward")
             }
-
-            TextField("추가 설명", text: $note)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 280)
+            Button { webView.reload() } label: { Image(systemName: "arrow.clockwise") }
 
             if let currentStatus {
                 Text(statusLabel(currentStatus))
@@ -139,7 +108,7 @@ struct LivePreviewEditorView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(sending || activeTaskId != nil || !drawingMode)
+            .disabled(sending || activeTaskId != nil)
         }
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
@@ -350,7 +319,7 @@ struct LivePreviewEditorView: View {
                 let result = try await model.client.createTask(
                     projectId: projectId,
                     snapshot: snapshot,
-                    typedNote: note,
+                    typedNote: "",
                     clientTaskId: clientTaskId,
                     conversationId: conversationId,
                     agentId: agentId
@@ -358,9 +327,6 @@ struct LivePreviewEditorView: View {
                 activeTaskId = result.taskId
                 currentStatus = result.status
                 canvasView.drawing = PKDrawing()
-                selection = []
-                drawingMode = false
-                note = ""
                 clientTaskId = UUID().uuidString
                 await monitor(taskId: result.taskId)
             } catch {
@@ -397,7 +363,8 @@ struct LivePreviewEditorView: View {
                 errorMessage = error.localizedDescription
                 return
             }
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            // CLI 완료 직후 PC WebView와 거의 같은 시점에 결과가 보이도록 한다.
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
 

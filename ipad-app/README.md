@@ -11,7 +11,8 @@ Swift 전체 소스는 iOS 16 시뮬레이터 SDK 기준 `swiftc -typecheck`를 
 |---|---|
 | `LivePreviewEditorView.swift` | WKWebView 라이브 UI, 드로잉 전환, 좌표 기반 질문 객체 |
 | `AnnotationCanvasView.swift` | 개발 하네스용 정적 이미지 주석 캔버스 |
-| `PencilCanvas.swift` | PKCanvasView + 도형 스냅 + undo(`setDrawingUndoably`) |
+| `PencilCanvas.swift` | PKCanvasView + 화살표·도형 자동 인식 + Pencil/손가락 분리 + undo(`setDrawingUndoably`) |
+| `ProjectBlueprintView.swift` | 새 프로젝트 설정 + UI/워크플로/특이사항 다중 페이지 드로우코딩 |
 | `CanvasComposer.swift` | 획/현재 라이브 렌더 분리(획 PNG + 렌더 JPEG, 2048px 상한) |
 | `BridgeClient.swift` | REST 클라이언트 + 응답 모델 전부 |
 | `ShapeSnap.swift` | 도형 인식 |
@@ -27,8 +28,8 @@ Swift 전체 소스는 iOS 16 시뮬레이터 SDK 기준 `swiftc -typecheck`를 
 
 ## 흐름
 
-1. 물리 iPad는 Tailscale에 로그인하면 `vibex-pc:8788`로 자동 연결
-   (시뮬레이터는 `127.0.0.1:8787` 자동 연결)
+1. 물리 iPad는 Tailscale에 로그인한 뒤 연결 설정에서 온라인 VIBEX PC를 선택
+   (처음 보는 PC는 MagicDNS 이름을 한 번 추가, 시뮬레이터는 `127.0.0.1:8787` 자동 연결)
 2. 프로젝트 목록(상태 점) → 프로젝트 선택
 3. PC가 시작한 Vite/React 프론트엔드를 WKWebView에서 직접 조작
 4. 드로잉 모드 전환 → 보내기(투명 획+현재 라이브 렌더 분리 전송)
@@ -53,4 +54,11 @@ open Vibex.xcodeproj
 ## 남은 것
 
 - WebSocket(`EventStream`) 실제 연결 — 이벤트 페이로드 형태 백엔드와 확인 후.
-- 회전/분할 화면, 온보딩, 새 프로젝트 생성 시트(백엔드 `POST /projects`는 있음).
+- 새 프로젝트는 `+ 새 프로젝트`에서 이름과 에이전트를 고른 뒤 UI·레이아웃,
+  워크플로 차트, 기타 특이사항 페이지를 Apple Pencil로 작성합니다. 페이지를
+  추가·복제·삭제할 수 있고, 격자/점/무지 템플릿과 펜·형광펜·지우개·올가미·
+  색·굵기·undo/redo를 지원합니다. 화살표와 기본 도형은 별도 모드 없이
+  손그림에서 자동 변환됩니다.
+- `구현 시작`은 PC 작업 루트에 Git 프로젝트와 공용 대화를 만든 다음 전체
+  설계 문서를 첫 LLM CLI 작업으로 전송합니다. 중간 네트워크 실패 시 이미
+  생성한 프로젝트를 재사용하므로 재시도로 중복 폴더를 만들지 않습니다.

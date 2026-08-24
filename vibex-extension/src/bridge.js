@@ -12,7 +12,6 @@ const execFile = promisify(childProcess.execFile);
 
 const LOCAL_BRIDGE_URL = "http://127.0.0.1:8787";
 const API_PREFIX = "/api/v1";
-const TAILSCALE_HOSTNAME = "vibex-pc";
 
 class BridgeError extends Error {
   constructor(message, status = 0) {
@@ -49,7 +48,7 @@ class VibexBridge {
     this.backendStarting = undefined;
     this.projectRoots = new Map();
     this._agentsCache = undefined;
-    this.tailscale = { url: `http://${TAILSCALE_HOSTNAME}:8788`, ready: false, error: "" };
+    this.tailscale = { url: "", ready: false, error: "" };
 
     this._onDidChangeTask = new vscode.EventEmitter();
     /** Fires with `{ taskId, projectId, status }` for every backend task transition. */
@@ -342,7 +341,6 @@ class VibexBridge {
         env: {
           ...process.env,
           PYTHONUNBUFFERED: "1",
-          BRIDGE_PREVIEW_PUBLIC_HOST: TAILSCALE_HOSTNAME,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -596,7 +594,7 @@ class VibexBridge {
     const servePort = vscode.workspace
       .getConfiguration("vibex")
       .get("tailscaleServePort", 8788);
-    const url = `http://${TAILSCALE_HOSTNAME}:${servePort}`;
+    let url = "";
     try {
       const binary = this.tailscaleBinary();
       if (!binary) {
@@ -614,12 +612,9 @@ class VibexBridge {
       if (!dnsName || status?.BackendState !== "Running") {
         throw new BridgeError("이 Mac에서 Tailscale에 먼저 로그인해 주세요.");
       }
-      if (dnsName.split(".")[0] !== TAILSCALE_HOSTNAME) {
-        await execFile(binary, ["set", `--hostname=${TAILSCALE_HOSTNAME}`], {
-          timeout: 15_000,
-          env: tailscaleEnv,
-        });
-      }
+      // PC마다 Tailscale이 보장하는 고유 MagicDNS 이름을 그대로 쓴다.
+      // `vibex-pc`로 강제 변경하면 여러 PC에서 이름 충돌과 -1 접미사가 생긴다.
+      url = `http://${dnsName}:${servePort}`;
       await execFile(
         binary,
         ["serve", "--bg", "--yes", `--http=${servePort}`, "127.0.0.1:8787"],
@@ -778,7 +773,6 @@ module.exports = {
   VibexBridge,
   BridgeError,
   LOCAL_BRIDGE_URL,
-  TAILSCALE_HOSTNAME,
   isPathInside,
   delay,
 };

@@ -78,7 +78,12 @@ def build_text(user_message: str) -> str:
     return user_message.strip()
 
 
-def build_visual(*, typed_note: str | None, test_commands: list[str] | None) -> str:
+def build_visual(
+    *,
+    typed_note: str | None,
+    test_commands: list[str] | None,
+    latency_optimized: bool = False,
+) -> str:
     """라이브 프론트엔드 렌더와 드로잉을 CLI가 직접 해석하도록 지시한다."""
     request = (
         "첨부 이미지 1은 iPad에서 실제로 동작 중인 프론트엔드의 현재 렌더이고, "
@@ -88,6 +93,15 @@ def build_visual(*, typed_note: str | None, test_commands: list[str] | None) -> 
     )
     if (typed_note or "").strip():
         request += f" 사용자가 덧붙인 설명: {(typed_note or '').strip()}"
+    if latency_optimized:
+        context = (
+            "빠른 iPad 반복 작업이다. 표시된 영역과 사용자 설명부터 확인하고 관련된 "
+            "파일만 최소 범위로 수정한다. 프로젝트 전체를 조사하지 않는다. 사용자가 "
+            "요청하지 않은 테스트는 실행하지 않는다. 구현을 막는 제품 결정만 "
+            "needs_answer로 묻고, 화면 질문에는 현재 렌더 기준 overlay 좌표를 넣는다."
+        )
+        return build([request], resumed=False, context=context, test_commands=None)
+
     context = (
         "요청이 모호하여 제품 결정을 추측해야 한다면 수정하지 말고 needs_answer로 "
         "응답한다. 화면 요소에 관한 질문은 overlay에 현재 렌더 기준 정규화 좌표와 "

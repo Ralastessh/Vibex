@@ -79,6 +79,34 @@ function codicon(name) {
   return el("span", `codicon codicon-${name}`);
 }
 
+/**
+ * The same VIBEX mark used by the native Chat Session contribution.
+ *
+ * Keep this inline so it inherits VS Code's `descriptionForeground` through
+ * the native `.chat-welcome-view-icon .codicon` rule in every color theme.
+ */
+function vibexMark() {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("class", "codicon vibex-welcome-logo");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+
+  const body = document.createElementNS(namespace, "path");
+  body.setAttribute("d", "M4 5.5 10.1 19h3.8L20 5.5h-3.8L12 15.7 7.8 5.5H4Z");
+  body.setAttribute("fill", "currentColor");
+
+  const dot = document.createElementNS(namespace, "circle");
+  dot.setAttribute("cx", "12");
+  dot.setAttribute("cy", "6");
+  dot.setAttribute("r", "2");
+  dot.setAttribute("fill", "currentColor");
+  dot.setAttribute("opacity", ".65");
+
+  svg.append(body, dot);
+  return svg;
+}
+
 function renderMarkdown(text) {
   const host = el("div", "rendered-markdown");
   host.innerHTML = md.render(String(text || ""));
@@ -165,11 +193,18 @@ const attachedContext = el("div", "chat-attached-context");
 attachmentsContainer.append(attachedContext);
 const editorContainer = el("div", "chat-editor-container");
 const editorHost = el("div", "interactive-input-editor");
+// 네이티브 입력창은 Monaco 데코레이션으로 `/명령`·`@파일` 토큰에 색을 입힌다.
+// textarea 는 부분 스타일이 불가능하므로, 같은 글꼴·줄바꿈 규칙으로 텍스트를
+// 다시 그리는 미러를 뒤에 깔고 textarea 글자는 투명하게 둔다(캐럿만 보임).
+const inputMirror = el("div", "vibex-input-mirror");
 const textarea = document.createElement("textarea");
 textarea.className = "vibex-input";
 textarea.rows = 1;
-editorHost.append(textarea);
+editorHost.append(inputMirror, textarea);
 editorContainer.append(editorHost);
+textarea.addEventListener("scroll", () => {
+  inputMirror.scrollTop = textarea.scrollTop;
+});
 
 const toolbars = el("div", "chat-input-toolbars");
 const inputToolbar = toolbar("responsive responsive-last chat-input-toolbar");
@@ -193,6 +228,7 @@ root.append(inputPart);
 
 textarea.addEventListener("focus", () => inputContainer.classList.add("focused"));
 textarea.addEventListener("blur", () => inputContainer.classList.remove("focused"));
+textarea.addEventListener("input", renderInputDecorations);
 textarea.addEventListener("input", autoGrow);
 textarea.addEventListener("keydown", (event) => {
   // The `/` `@` popup owns navigation and accept keys while it is open.
@@ -203,20 +239,116 @@ textarea.addEventListener("keydown", (event) => {
   }
 });
 
+// #region Input decorations (`/명령`·`@파일` 토큰 색 + 첨부 칩)
+
+/** 완성 수락·검색 결과로 실존이 확인된 파일들. 경로 → {name, relativePath} */
+const knownFiles = new Map();
+
+function rememberFile(file) {
+  if (file?.relativePath) knownFiles.set(file.relativePath, file);
+}
+
+/** 현재 입력에서 실존 파일과 매칭된 @토큰들. */
+function mentionTokensInText() {
+  const found = [];
+  for (const match of textarea.value.matchAll(/(^|\s)@([^\s]+)/g)) {
+    const path = match[2].replace(/[.,!?:;]+$/, "");
+    if (knownFiles.has(path)) found.push(path);
+  }
+  return [...new Set(found)];
+}
+
+/** 입력 텍스트를 미러에 다시 그리며 유효 토큰에만 색을 입힌다. */
+function renderInputDecorations() {
+  const value = textarea.value;
+  inputMirror.replaceChildren();
+
+  // 문서 시작의 슬래시 명령 — 실제 등록된 명령일 때만 토큰으로 취급.
+  let rest = value;
+  const slash = value.match(/^\/[\w-]+/);
+  if (slash && SLASH_COMMANDS.some((command) => command.value === slash[0])) {
+    inputMirror.append(el("span", "vibex-token", slash[0]));
+    rest = value.slice(slash[0].length);
+  }
+
+  // @파일 토큰 — knownFiles 에 있는 경로만 색을 입힌다.
+  let cursor = 0;
+  for (const match of rest.matchAll(/(^|\s)@([^\s]+)/g)) {
+    const clean = match[2].replace(/[.,!?:;]+$/, "");
+    if (!knownFiles.has(clean)) continue;
+    const tokenStart = match.index + match[1].length;
+    const tokenEnd = tokenStart + 1 + clean.length; // '@' + 경로
+    inputMirror.append(document.createTextNode(rest.slice(cursor, tokenStart)));
+    inputMirror.append(el("span", "vibex-token", `@${clean}`));
+    cursor = tokenEnd;
+  }
+  inputMirror.append(document.createTextNode(rest.slice(cursor)));
+  inputMirror.scrollTop = textarea.scrollTop;
+  renderAttachmentPills();
+}
+
+/** @토큰과 1:1 로 대응하는 첨부 칩. 칩의 ✕ 는 본문 토큰도 함께 지운다. */
+function renderAttachmentPills() {
+  const tokens = mentionTokensInText();
+  attachedContext.replaceChildren();
+  attachmentsContainer.style.display = tokens.length ? "" : "none";
+  for (const path of tokens) {
+    const file = knownFiles.get(path);
+    const pill = el("div", "chat-attached-context-attachment");
+    const label = el("span", "monaco-icon-label");
+    label.append(codicon("file"), el("span", "vibex-pill-name", file.name || path));
+    const remove = el("a", "vibex-pill-remove");
+    remove.title = "첨부 해제";
+    remove.append(codicon("close"));
+    remove.addEventListener("click", () => {
+      const escaped = path.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`(^|\\s)@${escaped}(?=\\s|$)\\s?`, "g");
+      textarea.value = textarea.value.replace(pattern, "$1").replace(/  +/g, " ").trimStart();
+      refreshComposer();
+      textarea.focus();
+    });
+    pill.append(label, remove);
+    attachedContext.append(pill);
+  }
+}
+
+/** textarea.value 를 코드로 바꾼 모든 지점에서 호출하는 단일 갱신점. */
+function refreshComposer() {
+  autoGrow();
+  syncSendEnabled();
+  renderInputDecorations();
+}
+
+// #endregion
+
 function autoGrow() {
   textarea.style.height = "auto";
   textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`;
+  // The popup floats in viewport space, so it must follow the box as it grows.
+  if (assistPopup.style.display !== "none") positionAssist();
 }
 
 // #endregion
 
 // #region Composer assist (`/` commands and `@` file mentions)
 
-// Anchored to the composer rather than <body>: unlike the picker menus this
-// popup tracks a caret, so it must move with the input box as it grows.
+// Appended to <body>, not to the composer: every composer ancestor sets
+// `overflow: hidden`, so a popup parented there is clipped away and never
+// becomes visible. It is positioned against the input box in viewport space
+// by `positionAssist()` instead.
 const assistPopup = el("div", "vibex-menu vibex-assist");
 assistPopup.style.display = "none";
-inputContainer.append(assistPopup);
+document.body.append(assistPopup);
+
+/** Places the popup directly above the input box, flipping below if needed. */
+function positionAssist() {
+  const anchor = inputContainer.getBoundingClientRect();
+  assistPopup.style.left = `${anchor.left}px`;
+  assistPopup.style.width = `${anchor.width}px`;
+  const height = assistPopup.offsetHeight;
+  const above = anchor.top - height - 4;
+  assistPopup.style.top = `${above >= 4 ? above : anchor.bottom + 4}px`;
+}
 
 /** The `/…` or `@…` token the caret currently sits in, if any. */
 function assistTokenAtCaret() {
@@ -290,6 +422,7 @@ function renderAssist() {
     }),
   );
   assistPopup.style.display = "";
+  positionAssist();
 }
 
 /** Swaps the tracked token for `replacement` and puts the caret after it. */
@@ -302,6 +435,7 @@ function replaceAssistToken(replacement) {
   textarea.setSelectionRange(caret, caret);
   autoGrow();
   syncSendEnabled();
+  renderInputDecorations();
 }
 
 function applyAssist(index) {
@@ -309,11 +443,11 @@ function applyAssist(index) {
   if (!item) return;
   if (item.kind === "command" && item.action === "clear") {
     textarea.value = "";
-    autoGrow();
-    syncSendEnabled();
+    refreshComposer();
   } else if (item.kind === "command") {
     replaceAssistToken(item.prompt || `${item.value} `);
   } else {
+    rememberFile(item.file);
     replaceAssistToken(`@${item.file.relativePath} `);
   }
   closeAssist();
@@ -347,6 +481,9 @@ function handleAssistKey(event) {
 textarea.addEventListener("input", updateAssist);
 textarea.addEventListener("click", updateAssist);
 textarea.addEventListener("blur", () => setTimeout(closeAssist, 120));
+window.addEventListener("resize", () => {
+  if (assistPopup.style.display !== "none") positionAssist();
+});
 
 // #endregion
 
@@ -740,14 +877,19 @@ function responseRow(task, { isLast }) {
 }
 
 function welcomeView() {
+  // Match VS Code's native blank Chat Session hierarchy. The container owns
+  // the available transcript height and centers the welcome mark above the
+  // composer; the inner view supplies the native title/message spacing.
+  const container = el("div", "chat-welcome-view-container");
   const host = el("div", "chat-welcome-view");
-  const iconHost = el("div", "chat-welcome-view-icon");
-  iconHost.append(codicon("sparkle"));
+  const iconHost = el("div", "chat-welcome-view-icon large-icon");
+  iconHost.append(vibexMark());
   const titleHost = el("div", "chat-welcome-view-title", "VIBEX");
   const message = el("div", "chat-welcome-view-message");
   message.append(renderMarkdown("iPad와 VS Code가 같은 대화를 공유합니다. 모델 선택기로 Codex와 Claude Code를 turn마다 바꿔 쓸 수 있습니다."));
   host.append(iconHost, titleHost, message);
-  return host;
+  container.append(host);
+  return container;
 }
 
 function renderTranscript() {
@@ -783,8 +925,7 @@ function submit() {
   if (!text || state.busy) return;
   closeAssist();
   textarea.value = "";
-  autoGrow();
-  syncSendEnabled();
+  refreshComposer();
   post({
     type: "send",
     text,
@@ -814,7 +955,7 @@ window.addEventListener("message", (event) => {
         const first = state.agents.find((agent) => agent.usable);
         if (first) state.options.modelId = `${first.agentId}::${first.models?.[0]?.value || ""}`;
       }
-      textarea.placeholder = "VIBEX에 요청하세요. `/`로 명령, `@`로 프로젝트 파일을 참조할 수 있습니다.";
+      // 안내 문구는 두지 않는다. `/`·`@` 는 입력하는 순간 자동완성이 뜬다.
       renderPickers();
       renderTranscript();
       syncSendEnabled();
@@ -823,6 +964,7 @@ window.addEventListener("message", (event) => {
     case "mentionResults": {
       if (message.requestId !== state.mentionRequestId) break; // 늦게 도착한 응답
       state.mentionFiles = Array.isArray(message.files) ? message.files : [];
+      for (const file of state.mentionFiles) rememberFile(file);
       // Re-render from the refreshed cache only — going through updateAssist()
       // here would post another search and loop.
       const range = assistTokenAtCaret();
@@ -833,11 +975,15 @@ window.addEventListener("message", (event) => {
       break;
     }
     case "insertMention": {
+      rememberFile({
+        relativePath: message.relativePath,
+        name: message.relativePath.split("/").pop(),
+      });
       const mention = `@${message.relativePath} `;
       const at = textarea.selectionStart ?? textarea.value.length;
       textarea.value = textarea.value.slice(0, at) + mention + textarea.value.slice(at);
       textarea.focus();
-      autoGrow();
+      refreshComposer();
       break;
     }
     case "taskUpdate": {

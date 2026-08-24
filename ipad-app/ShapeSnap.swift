@@ -12,6 +12,11 @@ struct SnappedShape {
     let outline: [CGPoint]
 }
 
+struct SnappedArrow {
+    let from: CGPoint
+    let to: CGPoint
+}
+
 enum ShapeSnap {
     private static let edgeSamples = 12
     private static let ellipseSamples = 60
@@ -120,6 +125,69 @@ enum ShapeSnap {
         return nil // 인식 실패 → 원래 자유곡선을 그대로 둔다
     }
 
+    /// `꼬리 → 끝 → 날개 → 끝 → 반대 날개`로 이어 그린 한 획 화살표.
+    static func snapArrow(_ points: [CGPoint]) -> SnappedArrow? {
+        guard let bounds = metrics(points), bounds.diag >= 40 else { return nil }
+        let simplified = rdp(points, 0.035 * bounds.diag)
+        guard simplified.count >= 5 && simplified.count <= 8 else { return nil }
+
+        let tail = simplified[0]
+        let firstTip = simplified[1]
+        let secondTip = simplified[simplified.count - 2]
+        let tip = CGPoint(
+            x: (firstTip.x + secondTip.x) / 2,
+            y: (firstTip.y + secondTip.y) / 2
+        )
+        let shaftLength = distance(tail, tip)
+        guard shaftLength >= 32,
+              distance(firstTip, secondTip) <= max(16, shaftLength * 0.16)
+        else { return nil }
+
+        let firstWing = simplified[2]
+        let secondWing = simplified.last!
+        guard validArrowHead(
+            tail: tail,
+            tip: tip,
+            firstWing: firstWing,
+            secondWing: secondWing,
+            shaftLength: shaftLength
+        ) else { return nil }
+        return SnappedArrow(from: tail, to: tip)
+    }
+
+    /// `직선 한 획 + V자 화살촉 한 획`을 하나의 화살표로 합친다.
+    static func snapArrow(shaft: [CGPoint], head: [CGPoint]) -> SnappedArrow? {
+        guard shaft.count >= 2, head.count >= 3 else { return nil }
+        let shaftStart = shaft.first!
+        let shaftEnd = shaft.last!
+        let shaftLength = distance(shaftStart, shaftEnd)
+        guard shaftLength >= 32 else { return nil }
+        let maxDeviation = shaft.map { perpDistance($0, shaftStart, shaftEnd) }.max() ?? 0
+        guard maxDeviation <= max(5, shaftLength * 0.1) else { return nil }
+
+        let headBounds = metrics(head)
+        guard let headBounds, headBounds.diag >= 16 else { return nil }
+        let simplified = rdp(head, 0.045 * headBounds.diag)
+        guard simplified.count == 3 else { return nil }
+        let vertex = simplified[1]
+        let firstWing = simplified[0]
+        let secondWing = simplified[2]
+
+        let endIsTip = distance(shaftEnd, vertex) <= distance(shaftStart, vertex)
+        let tail = endIsTip ? shaftStart : shaftEnd
+        let endpoint = endIsTip ? shaftEnd : shaftStart
+        guard distance(endpoint, vertex) <= max(18, shaftLength * 0.14) else { return nil }
+        let tip = CGPoint(x: (endpoint.x + vertex.x) / 2, y: (endpoint.y + vertex.y) / 2)
+        guard validArrowHead(
+            tail: tail,
+            tip: tip,
+            firstWing: firstWing,
+            secondWing: secondWing,
+            shaftLength: shaftLength
+        ) else { return nil }
+        return SnappedArrow(from: tail, to: tip)
+    }
+
     /// 직선 화살표 아웃라인(샤프트 + 화살촉). a→b 방향, 단일 폴리라인으로 그림.
     static func arrow(from a: CGPoint, to b: CGPoint) -> [CGPoint] {
         let dx = b.x - a.x, dy = b.y - a.y
@@ -155,6 +223,50 @@ enum ShapeSnap {
         var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
         t = max(0, min(1, t))
         return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+
+    private static func validArrowHead(
+        tail: CGPoint,
+        tip: CGPoint,
+        firstWing: CGPoint,
+        secondWing: CGPoint,
+        shaftLength: CGFloat
+    ) -> Bool {
+        let back = CGPoint(x: tail.x - tip.x, y: tail.y - tip.y)
+        let wing1 = CGPoint(x: firstWing.x - tip.x, y: firstWing.y - tip.y)
+        let wing2 = CGPoint(x: secondWing.x - tip.x, y: secondWing.y - tip.y)
+        let firstLength = hypot(wing1.x, wing1.y)
+        let secondLength = hypot(wing2.x, wing2.y)
+        guard firstLength >= max(10, shaftLength * 0.08),
+              secondLength >= max(10, shaftLength * 0.08),
+              firstLength <= shaftLength * 0.52,
+              secondLength <= shaftLength * 0.52
+        else { return false }
+
+        let backLength = max(hypot(back.x, back.y), 0.001)
+        let cosine1 = (back.x * wing1.x + back.y * wing1.y) / (backLength * firstLength)
+        let cosine2 = (back.x * wing2.x + back.y * wing2.y) / (backLength * secondLength)
+        // 화살촉은 샤프트의 뒤쪽을 향하면서 양쪽에 하나씩 있어야 한다.
+        guard cosine1 > 0.3, cosine2 > 0.3, cosine1 < 0.99, cosine2 < 0.99 else { return false }
+        let cross1 = back.x * wing1.y - back.y * wing1.x
+        let cross2 = back.x * wing2.y - back.y * wing2.x
+        return cross1 * cross2 < 0
+    }
+
+    private static func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        hypot(a.x - b.x, a.y - b.y)
+    }
+
+    private static func metrics(_ points: [CGPoint]) -> (diag: CGFloat, width: CGFloat, height: CGFloat)? {
+        guard let first = points.first else { return nil }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        let width = maxX - minX
+        let height = maxY - minY
+        return (hypot(width, height), width, height)
     }
 
     /// Ramer–Douglas–Peucker 단순화

@@ -7,7 +7,6 @@ const vscode = require("vscode");
 
 const VIEW_TYPE = "vibex.panel";
 const LOCAL_BRIDGE_URL = "http://127.0.0.1:8787";
-const TAILSCALE_HOSTNAME = "vibex-pc";
 const REVIEW_DOCUMENT_SCHEME = "vibex-review";
 const RESPONSE_FEEDBACK_KEY = "vibex.responseFeedback";
 const execFile = promisify(childProcess.execFile);
@@ -58,7 +57,7 @@ class VibexViewProvider {
     this.refreshGeneration = 0;
     this.backendProcess = undefined;
     this.backendStarting = undefined;
-    this.tailscale = { url: "http://vibex-pc:8788", ready: false, error: "Tailscale 확인 전" };
+    this.tailscale = { url: "", ready: false, error: "Tailscale 확인 전" };
     this.reviewDocuments = new ReviewDocumentProvider();
     this.projectRoots = new Map();
     this.responseFeedback = { ...(context.globalState.get(RESPONSE_FEEDBACK_KEY, {}) || {}) };
@@ -363,7 +362,6 @@ class VibexViewProvider {
         cwd: backend,
         env: {
           ...processEnv(),
-          BRIDGE_PREVIEW_PUBLIC_HOST: TAILSCALE_HOSTNAME,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -414,13 +412,9 @@ class VibexViewProvider {
 
   async configureTailscale() {
     const configuration = vscode.workspace.getConfiguration("vibex");
-    const hostname = TAILSCALE_HOSTNAME;
     const servePort = configuration.get("tailscaleServePort", 8788);
-    const url = `http://${hostname}:${servePort}`;
+    let url = "";
     try {
-      if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hostname)) {
-        throw new BridgeError("Tailscale 호스트 이름은 영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.");
-      }
       const binary = this.tailscaleBinary();
       if (!binary) {
         throw new BridgeError("Tailscale CLI를 찾지 못했습니다. Tailscale을 설치하고 로그인한 뒤 다시 시도해 주세요.");
@@ -435,12 +429,7 @@ class VibexViewProvider {
       if (!dnsName || status?.BackendState !== "Running") {
         throw new BridgeError("이 Mac에서 Tailscale에 먼저 로그인해 주세요.");
       }
-      if (dnsName.split(".")[0] !== hostname) {
-        await execFile(binary, ["set", `--hostname=${hostname}`], {
-          timeout: 15_000,
-          env: tailscaleEnv,
-        });
-      }
+      url = `http://${dnsName}:${servePort}`;
       await execFile(
         binary,
         ["serve", "--bg", "--yes", `--http=${servePort}`, "127.0.0.1:8787"],
@@ -1172,7 +1161,7 @@ class VibexViewProvider {
       <div class="pairing-panel">
         <span class="field-label">iPad 자동 연결</span>
         <p id="pairingStatus" class="muted">Tailscale 확인 중…</p>
-        <code id="tailscaleURL" class="pairing-url">http://vibex-pc:8788</code>
+        <code id="tailscaleURL" class="pairing-url">MagicDNS 확인 중…</code>
         <button id="setupTailscaleButton" class="secondary wide" type="button">Tailscale 연결 다시 준비</button>
       </div>
     </section>

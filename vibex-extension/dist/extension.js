@@ -22,7 +22,6 @@ var require_bridge = __commonJS({
     var execFile = promisify(childProcess.execFile);
     var LOCAL_BRIDGE_URL = "http://127.0.0.1:8787";
     var API_PREFIX = "/api/v1";
-    var TAILSCALE_HOSTNAME = "vibex-pc";
     var BridgeError = class extends Error {
       constructor(message, status = 0) {
         super(message);
@@ -49,7 +48,7 @@ var require_bridge = __commonJS({
         this.backendStarting = void 0;
         this.projectRoots = /* @__PURE__ */ new Map();
         this._agentsCache = void 0;
-        this.tailscale = { url: `http://${TAILSCALE_HOSTNAME}:8788`, ready: false, error: "" };
+        this.tailscale = { url: "", ready: false, error: "" };
         this._onDidChangeTask = new vscode2.EventEmitter();
         this.onDidChangeTask = this._onDidChangeTask.event;
         this._socket = void 0;
@@ -308,8 +307,7 @@ var require_bridge = __commonJS({
             cwd: backend,
             env: {
               ...process.env,
-              PYTHONUNBUFFERED: "1",
-              BRIDGE_PREVIEW_PUBLIC_HOST: TAILSCALE_HOSTNAME
+              PYTHONUNBUFFERED: "1"
             },
             stdio: ["ignore", "pipe", "pipe"]
           }
@@ -520,7 +518,7 @@ var require_bridge = __commonJS({
       }
       async configureTailscale() {
         const servePort = vscode2.workspace.getConfiguration("vibex").get("tailscaleServePort", 8788);
-        const url = `http://${TAILSCALE_HOSTNAME}:${servePort}`;
+        let url = "";
         try {
           const binary = this.tailscaleBinary();
           if (!binary) {
@@ -538,12 +536,7 @@ var require_bridge = __commonJS({
           if (!dnsName || status?.BackendState !== "Running") {
             throw new BridgeError("\uC774 Mac\uC5D0\uC11C Tailscale\uC5D0 \uBA3C\uC800 \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.");
           }
-          if (dnsName.split(".")[0] !== TAILSCALE_HOSTNAME) {
-            await execFile(binary, ["set", `--hostname=${TAILSCALE_HOSTNAME}`], {
-              timeout: 15e3,
-              env: tailscaleEnv
-            });
-          }
+          url = `http://${dnsName}:${servePort}`;
           await execFile(
             binary,
             ["serve", "--bg", "--yes", `--http=${servePort}`, "127.0.0.1:8787"],
@@ -663,7 +656,6 @@ var require_bridge = __commonJS({
       VibexBridge: VibexBridge2,
       BridgeError,
       LOCAL_BRIDGE_URL,
-      TAILSCALE_HOSTNAME,
       isPathInside,
       delay
     };
@@ -2271,8 +2263,9 @@ function activate(context) {
     vscode.chat.registerChatSessionContentProvider(SCHEME, sessions, participant),
     vscode.commands.registerCommand(
       "vibex.newSession",
-      () => vscode.commands.executeCommand(`workbench.action.chat.openNewSessionEditor.${SCHEME}`)
+      () => openVibexEditor()
     ),
+    vscode.commands.registerCommand("vibex.openEditor", () => openVibexEditor()),
     vscode.commands.registerCommand(
       "vibex.openPanel",
       () => vscode.commands.executeCommand("workbench.view.extension.vibexPanelContainer")
@@ -2340,7 +2333,13 @@ function activate(context) {
       }
     }, 5e3);
   }
-  void bridge.ensureBackend().then(() => {
+  void bridge.ensureBackend().then(async () => {
+    const tailscale = await bridge.configureTailscale();
+    if (tailscale.ready) {
+      output.appendLine(`[startup] Tailscale Serve \uC900\uBE44\uB428: ${tailscale.url}`);
+    } else {
+      output.appendLine(`[startup] Tailscale Serve \uC124\uC815 \uC2E4\uD328: ${tailscale.error}`);
+    }
     bridge.connectEvents();
     models.refresh();
   }).catch((error) => {
@@ -2398,6 +2397,11 @@ function describe(error) {
   return error instanceof Error ? error.message : String(error);
 }
 function deactivate() {
+}
+function openVibexEditor() {
+  return vscode.commands.executeCommand(
+    `workbench.action.chat.openNewSessionEditor.${SCHEME}`
+  );
 }
 module.exports = { activate, deactivate };
 //# sourceMappingURL=extension.js.map

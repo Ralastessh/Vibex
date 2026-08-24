@@ -21,7 +21,7 @@ const SLASH_COMMANDS = [
 
 const state = {
   configuration: { url: "http://127.0.0.1:8787", managed: true },
-  tailscale: { url: "http://vibex-pc:8788", ready: false, error: "" },
+  tailscale: { url: "", ready: false, error: "" },
   connected: false,
   health: null,
   agents: [],
@@ -809,7 +809,7 @@ function renderPairing() {
   dom.pairingStatus.textContent = tailscale.ready
     ? "준비됨 · iPad에서 같은 tailnet에 로그인하면 자동 연결됩니다."
     : tailscale.error || "Tailscale 확인 중…";
-  dom.tailscaleURL.textContent = tailscale.url || "http://vibex-pc:8788";
+  dom.tailscaleURL.textContent = tailscale.url || "MagicDNS 확인 중…";
 }
 
 function renderConnection() {

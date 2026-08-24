@@ -7,35 +7,37 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		01BF9B7DA0341ABA2139CDC1 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_06B04F4E-1058-4FA0-BD14-F328FF4C7FAC" /* BridgeClient.swift */; };
-		43246ED6C82976396393F844 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_5E117ADE-4190-4336-91DD-5680CE0576ED" /* HarnessView.swift */; };
-		501E93C37E06A2A9B661F96A /* LivePreviewEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_74AEEB5E-5199-474B-9625-96CF3B8A1B78" /* LivePreviewEditorView.swift */; };
-		7F82E960FA8E69010493AE26 /* PencilCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_626BEA43-2BC6-4C20-ABC4-997F3009F935" /* PencilCanvas.swift */; };
-		92A3B663C40DAADCFD411088 /* VibexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_857FAC70-C8B4-4775-B647-EFA8C6DB0922" /* VibexApp.swift */; };
-		A2EC2D22380A68179068B2FE /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_0D479551-6333-4E47-9150-E2F0AB88902E" /* RootView.swift */; };
-		B8B8492207A27809E1FD65C6 /* CanvasComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F6602A0A-6A19-4391-8ED7-71F759BB70F5" /* CanvasComposer.swift */; };
-		C09868C079D1D76FFFAF1A12 /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_636F73B0-E256-4BCA-AD2E-F9576125A8E6" /* AnnotationCanvasView.swift */; };
-		C8091E30B45CE116455FEE16 /* ShapeSnap.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_4B68624A-3189-4193-9443-3D10FA9DBB0F" /* ShapeSnap.swift */; };
-		E957A5A7DAF8E4CBA4252242 /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_C702380E-873E-4F83-B279-6CC4F7CD3600" /* EventStream.swift */; };
-		F5B19308EACD9E5E7C896BB9 /* DrawingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F9056AA1-E88F-4676-9FBE-8EB19D5D9018" /* DrawingToolbar.swift */; };
-		FEBE30F5E9E88053A14266D2 /* SelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_BF984BA2-C377-4454-AC50-4AA13ACBF85E" /* SelectionOverlay.swift */; };
+		237B57F81CC0BB6BC0410A55 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_85DC3544-B157-48F8-AFBF-3BF5923AF747" /* RootView.swift */; };
+		2D80E7B2B4D24C62726B26B8 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_9380498A-0D48-4314-9BD2-CC0A9E42866D" /* BridgeClient.swift */; };
+		35D46777A4EF38704D211EAB /* AnnotationCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F6B480B4-46D9-4817-B0F5-ED5DAF6BF8DB" /* AnnotationCanvasView.swift */; };
+		35E52065BF2EA7AC3AC91CE6 /* DrawingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_4305D22C-2281-494B-B337-FC9F6074B93C" /* DrawingToolbar.swift */; };
+		4DC5E2E0FCC1F1F39552E3B5 /* PencilCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3E0E85CB-4781-45FC-9084-9A92DBC66070" /* PencilCanvas.swift */; };
+		5D263C7567B8EC25E520E886 /* SelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_85426BCA-8768-4EC2-A737-C432A5851CD7" /* SelectionOverlay.swift */; };
+		6C1693DFC5172AD18ECE2BE0 /* CanvasComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_EA7544E5-C461-4635-9984-006D463BD179" /* CanvasComposer.swift */; };
+		6D2501EA56654B62222EECE7 /* EventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_EACCA22A-BE8F-4E21-A510-60DD3C9C396A" /* EventStream.swift */; };
+		836C008ECA4A0A433F9A8D9D /* VibexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3DB90797-5B64-4FFD-B1DB-A3A86717D903" /* VibexApp.swift */; };
+		9D22F7E09C6D6011996A7289 /* LivePreviewEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_20421B30-E20D-41D1-9EE2-951F61FD5221" /* LivePreviewEditorView.swift */; };
+		A18567210B08B5A9DEE45BEC /* ProjectBlueprintView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3CE63969-C53C-466C-96D1-9B21CFE9F996" /* ProjectBlueprintView.swift */; };
+		B242407CC8C376912AAD6A66 /* ShapeSnap.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_B64427BE-C52B-4FD0-AFCA-E9B227EC4BA2" /* ShapeSnap.swift */; };
+		D289CE93E5BD9DC877B12E44 /* HarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_E94922C9-81F4-4626-81D2-DE1886796B08" /* HarnessView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		8443143F55201380A755EDB2 /* Vibex.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Vibex.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		"TEMP_06B04F4E-1058-4FA0-BD14-F328FF4C7FAC" /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
-		"TEMP_0D479551-6333-4E47-9150-E2F0AB88902E" /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		"TEMP_4B68624A-3189-4193-9443-3D10FA9DBB0F" /* ShapeSnap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShapeSnap.swift; sourceTree = "<group>"; };
-		"TEMP_5E117ADE-4190-4336-91DD-5680CE0576ED" /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
-		"TEMP_626BEA43-2BC6-4C20-ABC4-997F3009F935" /* PencilCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvas.swift; sourceTree = "<group>"; };
-		"TEMP_636F73B0-E256-4BCA-AD2E-F9576125A8E6" /* AnnotationCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasView.swift; sourceTree = "<group>"; };
-		"TEMP_74AEEB5E-5199-474B-9625-96CF3B8A1B78" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
-		"TEMP_857FAC70-C8B4-4775-B647-EFA8C6DB0922" /* VibexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibexApp.swift; sourceTree = "<group>"; };
-		"TEMP_BF984BA2-C377-4454-AC50-4AA13ACBF85E" /* SelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionOverlay.swift; sourceTree = "<group>"; };
-		"TEMP_C702380E-873E-4F83-B279-6CC4F7CD3600" /* EventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStream.swift; sourceTree = "<group>"; };
-		"TEMP_D911A666-42D9-43AA-9F98-6060063913D6" /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
-		"TEMP_F6602A0A-6A19-4391-8ED7-71F759BB70F5" /* CanvasComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasComposer.swift; sourceTree = "<group>"; };
-		"TEMP_F9056AA1-E88F-4676-9FBE-8EB19D5D9018" /* DrawingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingToolbar.swift; sourceTree = "<group>"; };
+		8443143F55201380A755EDB2 /* Vibex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vibex.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		"TEMP_20421B30-E20D-41D1-9EE2-951F61FD5221" /* LivePreviewEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePreviewEditorView.swift; sourceTree = "<group>"; };
+		"TEMP_3CE63969-C53C-466C-96D1-9B21CFE9F996" /* ProjectBlueprintView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBlueprintView.swift; sourceTree = "<group>"; };
+		"TEMP_3DB90797-5B64-4FFD-B1DB-A3A86717D903" /* VibexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibexApp.swift; sourceTree = "<group>"; };
+		"TEMP_3E0E85CB-4781-45FC-9084-9A92DBC66070" /* PencilCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvas.swift; sourceTree = "<group>"; };
+		"TEMP_4305D22C-2281-494B-B337-FC9F6074B93C" /* DrawingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingToolbar.swift; sourceTree = "<group>"; };
+		"TEMP_85426BCA-8768-4EC2-A737-C432A5851CD7" /* SelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionOverlay.swift; sourceTree = "<group>"; };
+		"TEMP_85DC3544-B157-48F8-AFBF-3BF5923AF747" /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		"TEMP_9380498A-0D48-4314-9BD2-CC0A9E42866D" /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		"TEMP_B64427BE-C52B-4FD0-AFCA-E9B227EC4BA2" /* ShapeSnap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShapeSnap.swift; sourceTree = "<group>"; };
+		"TEMP_E8E0A0FA-7CF0-4844-AC8E-38A69F5D2E3A" /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
+		"TEMP_E94922C9-81F4-4626-81D2-DE1886796B08" /* HarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessView.swift; sourceTree = "<group>"; };
+		"TEMP_EA7544E5-C461-4635-9984-006D463BD179" /* CanvasComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasComposer.swift; sourceTree = "<group>"; };
+		"TEMP_EACCA22A-BE8F-4E21-A510-60DD3C9C396A" /* EventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStream.swift; sourceTree = "<group>"; };
+		"TEMP_F6B480B4-46D9-4817-B0F5-ED5DAF6BF8DB" /* AnnotationCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -47,32 +49,33 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		8453CE48303C2D630063CEB6 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_F6B480B4-46D9-4817-B0F5-ED5DAF6BF8DB" /* AnnotationCanvasView.swift */,
+				"TEMP_9380498A-0D48-4314-9BD2-CC0A9E42866D" /* BridgeClient.swift */,
+				"TEMP_EA7544E5-C461-4635-9984-006D463BD179" /* CanvasComposer.swift */,
+				"TEMP_4305D22C-2281-494B-B337-FC9F6074B93C" /* DrawingToolbar.swift */,
+				"TEMP_EACCA22A-BE8F-4E21-A510-60DD3C9C396A" /* EventStream.swift */,
+				"TEMP_E94922C9-81F4-4626-81D2-DE1886796B08" /* HarnessView.swift */,
+				"TEMP_20421B30-E20D-41D1-9EE2-951F61FD5221" /* LivePreviewEditorView.swift */,
+				"TEMP_3E0E85CB-4781-45FC-9084-9A92DBC66070" /* PencilCanvas.swift */,
+				"TEMP_3CE63969-C53C-466C-96D1-9B21CFE9F996" /* ProjectBlueprintView.swift */,
+				"TEMP_85DC3544-B157-48F8-AFBF-3BF5923AF747" /* RootView.swift */,
+				"TEMP_85426BCA-8768-4EC2-A737-C432A5851CD7" /* SelectionOverlay.swift */,
+				"TEMP_B64427BE-C52B-4FD0-AFCA-E9B227EC4BA2" /* ShapeSnap.swift */,
+				"TEMP_3DB90797-5B64-4FFD-B1DB-A3A86717D903" /* VibexApp.swift */,
+				"TEMP_E8E0A0FA-7CF0-4844-AC8E-38A69F5D2E3A" /* Local.xcconfig */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		DD68C710637FA73E797FECCE = {
 			isa = PBXGroup;
 			children = (
 				5328E02D7EF36AF5A8348653 /* Products */,
+				8453CE48303C2D630063CEB6 /* Recovered References */,
 			);
-			sourceTree = "<group>";
-		};
-		"TEMP_0E45B46D-932E-46F0-A5A5-9F4EE570CE59" /* . */ = {
-			isa = PBXGroup;
-			children = (
-				"TEMP_636F73B0-E256-4BCA-AD2E-F9576125A8E6" /* AnnotationCanvasView.swift */,
-				"TEMP_BF984BA2-C377-4454-AC50-4AA13ACBF85E" /* SelectionOverlay.swift */,
-				"TEMP_F9056AA1-E88F-4676-9FBE-8EB19D5D9018" /* DrawingToolbar.swift */,
-				"TEMP_857FAC70-C8B4-4775-B647-EFA8C6DB0922" /* VibexApp.swift */,
-				"TEMP_06B04F4E-1058-4FA0-BD14-F328FF4C7FAC" /* BridgeClient.swift */,
-				"TEMP_C702380E-873E-4F83-B279-6CC4F7CD3600" /* EventStream.swift */,
-				"TEMP_5E117ADE-4190-4336-91DD-5680CE0576ED" /* HarnessView.swift */,
-				"TEMP_D911A666-42D9-43AA-9F98-6060063913D6" /* Local.xcconfig */,
-				"TEMP_0D479551-6333-4E47-9150-E2F0AB88902E" /* RootView.swift */,
-				"TEMP_4B68624A-3189-4193-9443-3D10FA9DBB0F" /* ShapeSnap.swift */,
-				"TEMP_F6602A0A-6A19-4391-8ED7-71F759BB70F5" /* CanvasComposer.swift */,
-				"TEMP_626BEA43-2BC6-4C20-ABC4-997F3009F935" /* PencilCanvas.swift */,
-				"TEMP_74AEEB5E-5199-474B-9625-96CF3B8A1B78" /* LivePreviewEditorView.swift */,
-			);
-			name = .;
-			path = .;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -105,7 +108,6 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					A675ED5F779372C1EE35BBC7 = {
-						DevelopmentTeam = "$(VIBEX_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -134,18 +136,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C09868C079D1D76FFFAF1A12 /* AnnotationCanvasView.swift in Sources */,
-				01BF9B7DA0341ABA2139CDC1 /* BridgeClient.swift in Sources */,
-				B8B8492207A27809E1FD65C6 /* CanvasComposer.swift in Sources */,
-				F5B19308EACD9E5E7C896BB9 /* DrawingToolbar.swift in Sources */,
-				E957A5A7DAF8E4CBA4252242 /* EventStream.swift in Sources */,
-				43246ED6C82976396393F844 /* HarnessView.swift in Sources */,
-				501E93C37E06A2A9B661F96A /* LivePreviewEditorView.swift in Sources */,
-				7F82E960FA8E69010493AE26 /* PencilCanvas.swift in Sources */,
-				A2EC2D22380A68179068B2FE /* RootView.swift in Sources */,
-				FEBE30F5E9E88053A14266D2 /* SelectionOverlay.swift in Sources */,
-				C8091E30B45CE116455FEE16 /* ShapeSnap.swift in Sources */,
-				92A3B663C40DAADCFD411088 /* VibexApp.swift in Sources */,
+				35D46777A4EF38704D211EAB /* AnnotationCanvasView.swift in Sources */,
+				2D80E7B2B4D24C62726B26B8 /* BridgeClient.swift in Sources */,
+				6C1693DFC5172AD18ECE2BE0 /* CanvasComposer.swift in Sources */,
+				35E52065BF2EA7AC3AC91CE6 /* DrawingToolbar.swift in Sources */,
+				6D2501EA56654B62222EECE7 /* EventStream.swift in Sources */,
+				D289CE93E5BD9DC877B12E44 /* HarnessView.swift in Sources */,
+				9D22F7E09C6D6011996A7289 /* LivePreviewEditorView.swift in Sources */,
+				4DC5E2E0FCC1F1F39552E3B5 /* PencilCanvas.swift in Sources */,
+				A18567210B08B5A9DEE45BEC /* ProjectBlueprintView.swift in Sources */,
+				237B57F81CC0BB6BC0410A55 /* RootView.swift in Sources */,
+				5D263C7567B8EC25E520E886 /* SelectionOverlay.swift in Sources */,
+				B242407CC8C376912AAD6A66 /* ShapeSnap.swift in Sources */,
+				836C008ECA4A0A433F9A8D9D /* VibexApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,13 +276,13 @@
 		};
 		99190836DBE94F09F151FC85 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_D911A666-42D9-43AA-9F98-6060063913D6" /* Local.xcconfig */;
+			baseConfigurationReference = "TEMP_E8E0A0FA-7CF0-4844-AC8E-38A69F5D2E3A" /* Local.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "$(VIBEX_DEVELOPMENT_TEAM)";
+				DEVELOPMENT_TEAM = D5QAJTL57J;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -295,13 +298,13 @@
 		};
 		E48DC1A56FF41E5817312D0B /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_D911A666-42D9-43AA-9F98-6060063913D6" /* Local.xcconfig */;
+			baseConfigurationReference = "TEMP_E8E0A0FA-7CF0-4844-AC8E-38A69F5D2E3A" /* Local.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "$(VIBEX_DEVELOPMENT_TEAM)";
+				DEVELOPMENT_TEAM = D5QAJTL57J;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

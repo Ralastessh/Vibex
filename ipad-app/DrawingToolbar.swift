@@ -8,13 +8,13 @@ struct DrawingToolbar: View {
     private let eraserWidths: [CGFloat] = [12, 24, 40]
 
     var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 10) {
             HStack(spacing: 4) {
-                toolButton(.pen, "pencil.tip")
-                toolButton(.marker, "highlighter")
-                toolButton(.arrow, "arrow.up.right")
-                toolButton(.eraser, "eraser")
-                toolButton(.lasso, "lasso")
+                toolButton(.pen, "pencil.tip", "펜")
+                toolButton(.marker, "highlighter", "형광펜")
+                toolButton(.eraser, "eraser", "지우개")
+                toolButton(.lasso, "lasso", "올가미")
             }
 
             if tool.kind.usesColor {
@@ -30,6 +30,16 @@ struct DrawingToolbar: View {
                             )
                             .onTapGesture { tool.colorHex = hex }
                     }
+                    ColorPicker(
+                        "사용자 색상",
+                        selection: Binding(
+                            get: { Color(uiColor: UIColor(hex: tool.colorHex)) },
+                            set: { tool.colorHex = UIColor($0).hexRGB }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                    .frame(width: 28)
                 }
 
                 Divider().frame(height: 26)
@@ -56,6 +66,7 @@ struct DrawingToolbar: View {
                     }
                 }
             }
+        }
         }
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
@@ -86,7 +97,7 @@ struct DrawingToolbar: View {
             .onTapGesture(perform: action)
     }
 
-    private func toolButton(_ kind: PenKind, _ icon: String) -> some View {
+    private func toolButton(_ kind: PenKind, _ icon: String, _ label: String) -> some View {
         Button {
             tool.kind = kind
         } label: {
@@ -99,5 +110,6 @@ struct DrawingToolbar: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }

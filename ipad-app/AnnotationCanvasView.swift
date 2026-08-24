@@ -20,7 +20,6 @@ struct AnnotationCanvasView: View {
     var onCreated: (TaskCreated) -> Void = { _ in }
 
     @State private var canvasView = PKCanvasView()
-    @State private var shapeSnapEnabled = false
 
     /// 재전송해도 작업이 중복 생성되지 않게 하는 값. 전송이 성공할 때까지 유지한다.
     @State private var clientTaskId = UUID().uuidString
@@ -46,7 +45,6 @@ struct AnnotationCanvasView: View {
                 // 주석 레이어 (투명)
                 PencilCanvas(
                     canvasView: canvasView,
-                    shapeSnapEnabled: $shapeSnapEnabled,
                     allowFingerDrawing: allowFingerDrawing
                 )
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -84,12 +82,6 @@ struct AnnotationCanvasView: View {
                 // 직접 대입하면 되돌릴 수 없다. 전체 삭제야말로 되돌리기가 필요하다.
                 canvasView.setDrawingUndoably(PKDrawing(), actionName: "전체 지우기")
             }
-            Toggle(isOn: $shapeSnapEnabled) {
-                Label("도형", systemImage: "square.on.circle")
-            }
-            .toggleStyle(.button)
-            .tint(.blue)
-
             Spacer(minLength: 12)
 
             Button(action: send) {

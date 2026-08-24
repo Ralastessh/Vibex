@@ -105,6 +105,16 @@ struct HealthView: Decodable {
     let projects: Int
 }
 
+struct TailscaleDeviceView: Decodable, Identifiable {
+    let name: String
+    let dnsName: String
+    let online: Bool
+    let isSelf: Bool
+
+    var id: String { dnsName }
+    var bridgeURL: URL? { URL(string: "http://\(dnsName):8788") }
+}
+
 struct TaskView: Decodable {
     let taskId: String
     let projectId: String
@@ -172,6 +182,14 @@ struct BridgeClient {
         try await send(request(path: "health"), as: HealthView.self)
     }
 
+    func tailscaleDevices() async throws -> [TailscaleDeviceView] {
+        struct Response: Decodable { let devices: [TailscaleDeviceView] }
+        return try await send(
+            request(path: "tailscale/devices"),
+            as: Response.self
+        ).devices
+    }
+
     /// 사용자가 연결 확인에 쓴 `/api/v1/health` 주소를 그대로 붙여 넣더라도
     /// API 경로가 중복되지 않게 PC 서버의 루트 URL로 되돌린다.
     private var serverRootURL: URL {
@@ -198,6 +216,19 @@ struct BridgeClient {
     func listProjects() async throws -> [ProjectView] {
         struct Response: Decodable { let projects: [ProjectView] }
         return try await send(request(path: "projects"), as: Response.self).projects
+    }
+
+    /// PC의 `BRIDGE_WORKSPACE_ROOT` 아래에 새 Git 프로젝트를 만든다.
+    /// iPad는 절대 경로를 알거나 보내지 않는다.
+    func createProject(displayName: String, agentId: String) async throws -> ProjectView {
+        try await sendJSON(
+            path: "projects",
+            body: [
+                "displayName": displayName,
+                "agent": agentId,
+            ],
+            as: ProjectView.self
+        )
     }
 
     func listAgents() async throws -> [AgentView] {
@@ -249,9 +280,18 @@ struct BridgeClient {
         typedNote: String? = nil,
         clientTaskId: String,
         conversationId: String? = nil,
-        agentId: String? = nil
+        agentId: String? = nil,
+        latencyOptimized: Bool = true
     ) async throws -> TaskCreated {
-        var fields = ["projectId": projectId, "clientTaskId": clientTaskId]
+        var fields = [
+            "projectId": projectId,
+            "clientTaskId": clientTaskId,
+            "origin": "ipad",
+            "mode": latencyOptimized ? "visual-fast" : "visual-full",
+        ]
+        // 짧은 UI 수정 피드백은 CLI 기본 설정(사용자 환경에 따라 high/max일 수
+        // 있음)을 그대로 물려받지 않는다. 유료 Fast tier는 요청하지 않는다.
+        if latencyOptimized { fields["effort"] = "low" }
         if let conversationId { fields["conversationId"] = conversationId }
         if let agentId { fields["agentId"] = agentId }
         if let typedNote, !typedNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -276,13 +316,16 @@ struct BridgeClient {
         typedNote: String,
         clientTaskId: String,
         conversationId: String? = nil,
-        agentId: String? = nil
+        agentId: String? = nil,
+        latencyOptimized: Bool = true
     ) async throws -> TaskCreated {
         var fields = [
             "projectId": projectId,
             "clientTaskId": clientTaskId,
             "typedNote": typedNote,
+            "origin": "ipad",
         ]
+        if latencyOptimized { fields["effort"] = "low" }
         if let conversationId { fields["conversationId"] = conversationId }
         if let agentId { fields["agentId"] = agentId }
         let (body, contentType) = Self.multipartBody(fields: fields, files: [])

@@ -24,6 +24,16 @@ enum CanvasComposer {
         let pixelSize: CGSize
     }
 
+    /// 새 프로젝트를 시작할 때 사용하는 한 페이지의 드로우코딩 자료.
+    struct BlueprintPage {
+        let title: String
+        let purpose: String
+        let note: String
+        let template: String
+        let drawing: PKDrawing
+        let canvasBounds: CGRect
+    }
+
     // MARK: - 전송용
 
     /// - Parameters:
@@ -65,6 +75,51 @@ enum CanvasComposer {
         return Snapshot(
             canvas: canvas,
             base: base,
+            pixelSize: CGSize(width: size.width * scale, height: size.height * scale)
+        )
+    }
+
+    /// UI 설계·워크플로·특이사항 페이지를 같은 좌표계의 두 이미지로 묶는다.
+    /// 배경에는 페이지 제목과 종이 구조, canvas에는 Apple Pencil 획만 들어간다.
+    static func blueprintSnapshot(
+        pages: [BlueprintPage], displayScale: CGFloat
+    ) -> Snapshot? {
+        guard !pages.isEmpty else { return nil }
+
+        let pageSize = CGSize(width: 1120, height: 760)
+        let gap: CGFloat = 28
+        let size = CGSize(
+            width: pageSize.width,
+            height: pageSize.height * CGFloat(pages.count) + gap * CGFloat(max(0, pages.count - 1))
+        )
+        let scale = outputScale(for: size, displayScale: displayScale)
+
+        let baseImage = renderer(size: size, scale: scale, opaque: true).image { context in
+            UIColor.systemGroupedBackground.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            for (index, page) in pages.enumerated() {
+                let y = CGFloat(index) * (pageSize.height + gap)
+                let pageRect = CGRect(x: 0, y: y, width: pageSize.width, height: pageSize.height)
+                drawBlueprintBackground(page, in: pageRect, context: context.cgContext)
+            }
+        }
+
+        let drawingImage = renderer(size: size, scale: scale, opaque: false).image { _ in
+            for (index, page) in pages.enumerated() {
+                let y = CGFloat(index) * (pageSize.height + gap)
+                let target = CGRect(x: 34, y: y + 78, width: pageSize.width - 68, height: pageSize.height - 112)
+                guard page.canvasBounds.width > 0, page.canvasBounds.height > 0 else { continue }
+                page.drawing.image(from: page.canvasBounds, scale: 1)
+                    .draw(in: target, blendMode: .normal, alpha: 1)
+            }
+        }
+
+        guard let canvasData = drawingImage.pngData(),
+              let baseData = baseImage.jpegData(compressionQuality: 0.92) else { return nil }
+        return Snapshot(
+            canvas: ImagePayload(data: canvasData, mimeType: "image/png", filename: "blueprint-drawing.png"),
+            base: ImagePayload(data: baseData, mimeType: "image/jpeg", filename: "blueprint-pages.jpg"),
             pixelSize: CGSize(width: size.width * scale, height: size.height * scale)
         )
     }
@@ -118,6 +173,52 @@ enum CanvasComposer {
         format.scale = scale
         format.opaque = opaque
         return UIGraphicsImageRenderer(size: size, format: format)
+    }
+
+    private static func drawBlueprintBackground(
+        _ page: BlueprintPage,
+        in rect: CGRect,
+        context: CGContext
+    ) {
+        UIColor.systemBackground.setFill()
+        UIBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: 22).fill()
+        UIColor.separator.withAlphaComponent(0.35).setStroke()
+        let border = UIBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: 22)
+        border.lineWidth = 2
+        border.stroke()
+
+        let title = page.title as NSString
+        title.draw(
+            in: CGRect(x: rect.minX + 34, y: rect.minY + 24, width: rect.width - 68, height: 40),
+            withAttributes: [
+                .font: UIFont.systemFont(ofSize: 28, weight: .bold),
+                .foregroundColor: UIColor.label,
+            ]
+        )
+        let canvas = CGRect(x: rect.minX + 34, y: rect.minY + 78, width: rect.width - 68, height: rect.height - 112)
+        UIColor.secondarySystemBackground.setFill()
+        UIBezierPath(roundedRect: canvas, cornerRadius: 12).fill()
+
+        context.saveGState()
+        context.setStrokeColor(UIColor.separator.withAlphaComponent(0.22).cgColor)
+        context.setLineWidth(1)
+        if page.template == "grid" {
+            stride(from: canvas.minX, through: canvas.maxX, by: 32).forEach {
+                context.move(to: CGPoint(x: $0, y: canvas.minY)); context.addLine(to: CGPoint(x: $0, y: canvas.maxY))
+            }
+            stride(from: canvas.minY, through: canvas.maxY, by: 32).forEach {
+                context.move(to: CGPoint(x: canvas.minX, y: $0)); context.addLine(to: CGPoint(x: canvas.maxX, y: $0))
+            }
+            context.strokePath()
+        } else if page.template == "dots" {
+            context.setFillColor(UIColor.tertiaryLabel.withAlphaComponent(0.35).cgColor)
+            for x in stride(from: canvas.minX + 16, to: canvas.maxX, by: 28) {
+                for y in stride(from: canvas.minY + 16, to: canvas.maxY, by: 28) {
+                    context.fillEllipse(in: CGRect(x: x - 1.2, y: y - 1.2, width: 2.4, height: 2.4))
+                }
+            }
+        }
+        context.restoreGState()
     }
 
     /// 비율을 유지하며 rect를 꽉 채우도록 그린다.

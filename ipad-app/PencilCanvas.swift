@@ -17,8 +17,8 @@ extension PKCanvasView {
 
 // 툴바에서 고르는 도구.
 enum PenKind: String, CaseIterable {
-    case pen, marker, arrow, eraser, lasso
-    var usesColor: Bool { self == .pen || self == .marker || self == .arrow }
+    case pen, marker, eraser, lasso
+    var usesColor: Bool { self == .pen || self == .marker }
 }
 
 // 지우개 방식: 획 일부만 지우기(픽셀) vs 획 통째로 지우기(오브젝트).
@@ -40,7 +40,7 @@ struct DrawTool: Equatable {
     var pkTool: PKTool {
         let color = UIColor(hex: colorHex)
         switch kind {
-        case .pen, .arrow: return PKInkingTool(.pen, color: color, width: width)
+        case .pen: return PKInkingTool(.pen, color: color, width: width)
         case .marker: return PKInkingTool(.marker, color: color, width: max(width * 3, 16))
         case .eraser:
             // width 지정 지우개와 .vector(획 전체) 지우개는 iOS 16.4+.
@@ -56,11 +56,35 @@ struct DrawTool: Equatable {
     }
 }
 
+/// 라이브 프론트엔드 위에서 Apple Pencil 입력만 캔버스가 받고, 손가락 입력은
+/// 아래 WKWebView로 통과시킨다. `drawingPolicy = .pencilOnly`만으로는
+/// PKCanvasView의 UIScrollView가 손가락 hit-test까지 소비하므로 별도 처리가 필요하다.
+final class PencilPassthroughCanvasView: PKCanvasView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard drawingPolicy == .pencilOnly,
+              let touches = event?.allTouches,
+              !touches.isEmpty
+        else {
+            return super.hitTest(point, with: event)
+        }
+        // Pencil로 그리는 도중 손가락이 추가되면 event.allTouches에는 둘 다
+        // 들어온다. `pencil이 하나라도 있음`으로 판단하면 손가락까지 캔버스가
+        // 가로채므로, 현재 hit-test 지점에 가장 가까운 터치 하나를 판별한다.
+        let nearest = touches.min { lhs, rhs in
+            let left = lhs.location(in: self)
+            let right = rhs.location(in: self)
+            return hypot(left.x - point.x, left.y - point.y)
+                < hypot(right.x - point.x, right.y - point.y)
+        }
+        if nearest?.type != .pencil {
+            return nil
+        }
+        return super.hitTest(point, with: event)
+    }
+}
+
 struct PencilCanvas: UIViewRepresentable {
     let canvasView: PKCanvasView
-
-    /// 도형 스냅 on/off.
-    @Binding var shapeSnapEnabled: Bool
 
     // nil이면 애플 기본 팔레트를 쓴다.
     var tool: DrawTool?
@@ -79,7 +103,6 @@ struct PencilCanvas: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
-        context.coordinator.shapeSnapEnabled = shapeSnapEnabled
         // 스냅은 새로 그린 잉크(펜/형광펜)에만. 지우개·올가미 뒤엔 안 돈다.
         context.coordinator.currentKind = tool?.kind
         uiView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
@@ -102,50 +125,91 @@ struct PencilCanvas: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(shapeSnapEnabled: shapeSnapEnabled)
+        Coordinator()
     }
 
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let toolPicker = PKToolPicker()
-        var shapeSnapEnabled: Bool
         var currentKind: PenKind?
+        private var strokeCountAtToolBegin = 0
+        private var strokeGeneration = 0
 
-        init(shapeSnapEnabled: Bool) {
-            self.shapeSnapEnabled = shapeSnapEnabled
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            // PencilKit은 `DidEndUsingTool`을 호출한 시점에 마지막 획을 drawing에
+            // 완전히 확정하지 않았을 수 있다. 시작 시점의 개수를 기억해 새 획만
+            // 대상으로 삼고, 종료 처리는 다음 run loop에서 수행한다.
+            strokeCountAtToolBegin = canvasView.drawing.strokes.count
+            strokeGeneration += 1
         }
 
-        /// 획을 뗀 순간. 화살표 도구면 화살표로, 도형 모드면 방금 그린 획을 인식해 스냅
+        /// 일반 펜/형광펜 획을 뗀 순간 화살표와 도형을 자동 인식해 정리한다.
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            guard let last = canvasView.drawing.strokes.last else { return }
+            let baseline = strokeCountAtToolBegin
+            let generation = strokeGeneration
+            let kind = currentKind
+            DispatchQueue.main.async { [weak self, weak canvasView] in
+                guard let self, let canvasView else { return }
+                guard generation == self.strokeGeneration else { return }
+                guard kind == .pen || kind == .marker else { return }
+                self.snapLatestStroke(in: canvasView, after: baseline)
+            }
+        }
 
-            if currentKind == .arrow {
-                snapArrow(last, in: canvasView)
+        private func snapLatestStroke(in canvasView: PKCanvasView, after baseline: Int) {
+            let strokes = canvasView.drawing.strokes
+            // 새 획이 아직 확정되지 않았거나 도중에 취소됐다면 기존 drawing을
+            // 절대 다시 대입하지 않는다. 이 guard가 후속 자유선 소실을 막는다.
+            guard strokes.count > baseline, let last = strokes.last else { return }
+
+            let points = sampledPoints(of: last)
+            if let arrow = ShapeSnap.snapArrow(points) {
+                replaceLastStroke(with: arrow, source: last, in: canvasView)
                 return
             }
 
-            guard shapeSnapEnabled, currentKind == .pen || currentKind == .marker else { return }
+            // 흔히 그리는 방식인 `직선 한 획 + V자 화살촉 한 획`도 하나의
+            // 화살표로 합친다. 첫 직선은 이미 자동 정리됐을 수 있어 2점이어도 된다.
+            if strokes.count >= 2 {
+                let shaft = strokes[strokes.count - 2]
+                if let arrow = ShapeSnap.snapArrow(
+                    shaft: sampledPoints(of: shaft),
+                    head: points
+                ) {
+                    replaceLastTwoStrokes(with: arrow, source: last, in: canvasView)
+                    return
+                }
+            }
 
-            let points = sampledPoints(of: last)
             guard let snapped = ShapeSnap.snap(points) else { return }
 
-            var strokes = canvasView.drawing.strokes
-            strokes.removeLast()
-            strokes.append(makeStroke(outline: snapped.outline, like: last))
-            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "도형 정리")
+            var updated = canvasView.drawing.strokes
+            updated.removeLast()
+            updated.append(makeStroke(outline: snapped.outline, like: last))
+            canvasView.setDrawingUndoably(PKDrawing(strokes: updated), actionName: "도형 정리")
         }
 
-        /// 방금 드래그한 획의 시작→끝을 직선 화살표로 교체.
-        private func snapArrow(_ stroke: PKStroke, in canvasView: PKCanvasView) {
-            let points = sampledPoints(of: stroke)
-            guard let a = points.first, let b = points.last else { return }
-            guard hypot(b.x - a.x, b.y - a.y) >= 24 else { return } // 너무 짧으면 무시
-
+        private func replaceLastStroke(
+            with arrow: SnappedArrow,
+            source: PKStroke,
+            in canvasView: PKCanvasView
+        ) {
             var strokes = canvasView.drawing.strokes
             strokes.removeLast()
-            strokes.append(makeStroke(outline: ShapeSnap.arrow(from: a, to: b), like: stroke))
-            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "화살표")
+            strokes.append(makeStroke(outline: ShapeSnap.arrow(from: arrow.from, to: arrow.to), like: source))
+            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "화살표 정리")
+        }
+
+        private func replaceLastTwoStrokes(
+            with arrow: SnappedArrow,
+            source: PKStroke,
+            in canvasView: PKCanvasView
+        ) {
+            var strokes = canvasView.drawing.strokes
+            strokes.removeLast(2)
+            strokes.append(makeStroke(outline: ShapeSnap.arrow(from: arrow.from, to: arrow.to), like: source))
+            canvasView.setDrawingUndoably(PKDrawing(strokes: strokes), actionName: "화살표 정리")
         }
 
         // MARK: 획 ↔ 점 변환
@@ -190,6 +254,22 @@ extension UIColor {
             green: CGFloat((value >> 8) & 0xff) / 255,
             blue: CGFloat(value & 0xff) / 255,
             alpha: 1
+        )
+    }
+
+    var hexRGB: String {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return "#111111"
+        }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded())
         )
     }
 }

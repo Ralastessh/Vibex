@@ -34,8 +34,9 @@ function activate(context) {
     vscode.chat.registerChatSessionContentProvider(SCHEME, sessions, participant),
 
     vscode.commands.registerCommand("vibex.newSession", () =>
-      vscode.commands.executeCommand(`workbench.action.chat.openNewSessionEditor.${SCHEME}`),
+      openVibexEditor(),
     ),
+    vscode.commands.registerCommand("vibex.openEditor", () => openVibexEditor()),
     vscode.commands.registerCommand("vibex.openPanel", () =>
       vscode.commands.executeCommand("workbench.view.extension.vibexPanelContainer"),
     ),
@@ -104,7 +105,15 @@ function activate(context) {
   // is populated by the time the user opens it.
   void bridge
     .ensureBackend()
-    .then(() => {
+    .then(async () => {
+      // iPad 연결은 백엔드만 떠 있어서는 동작하지 않는다. 확장 활성화 때마다
+      // 현재 Mac의 고유 MagicDNS 이름으로 8788 → 8787 Serve를 보장한다.
+      const tailscale = await bridge.configureTailscale();
+      if (tailscale.ready) {
+        output.appendLine(`[startup] Tailscale Serve 준비됨: ${tailscale.url}`);
+      } else {
+        output.appendLine(`[startup] Tailscale Serve 설정 실패: ${tailscale.error}`);
+      }
       bridge.connectEvents();
       models.refresh();
     })
@@ -169,5 +178,16 @@ function describe(error) {
 }
 
 function deactivate() {}
+
+/**
+ * Opens VS Code's native Chat Session editor for VIBEX. This is the wide,
+ * centered surface with the VIBEX welcome mark shown in the reference image;
+ * it is separate from the compact secondary-sidebar WebView.
+ */
+function openVibexEditor() {
+  return vscode.commands.executeCommand(
+    `workbench.action.chat.openNewSessionEditor.${SCHEME}`,
+  );
+}
 
 module.exports = { activate, deactivate };
