@@ -403,7 +403,7 @@ struct ProjectListView: View {
             Section {
             ForEach(visibleProjects) { project in
                 NavigationLink {
-                    ProjectWorkspaceView(model: model, project: project)
+                    ConversationListView(model: model, project: project)
                 } label: {
                     HStack(spacing: 14) {
                         RoundedRectangle(cornerRadius: 10)
@@ -503,7 +503,7 @@ struct ConversationListView: View {
             }
             ForEach(conversations) { conversation in
                 NavigationLink {
-                    ConversationDetailView(
+                    ProjectWorkspaceView(
                         model: model,
                         project: project,
                         conversation: conversation
@@ -612,17 +612,6 @@ struct ConversationDetailView: View {
 
                     Spacer()
 
-                    NavigationLink {
-                        ComposeView(
-                            model: model,
-                            project: project,
-                            conversationId: conversation.conversationId,
-                            agentId: effectiveAgentId
-                        )
-                    } label: {
-                        Label("라이브 화면", systemImage: "rectangle.on.rectangle")
-                    }
-                    .buttonStyle(.bordered)
                 }
 
                 HStack(alignment: .bottom) {

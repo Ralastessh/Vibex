@@ -69,6 +69,14 @@ body > .interactive-session {
   box-sizing: border-box;
 }
 
+.chat-welcome-view-icon.large-icon .vibex-welcome-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 24px;
+  object-fit: contain;
+}
+
 /* Stand-in for the Monaco editor inside .chat-editor-container: completely
    transparent; all box styling comes from .chat-input-container rules. */
 .chat-editor-container textarea.vibex-input {

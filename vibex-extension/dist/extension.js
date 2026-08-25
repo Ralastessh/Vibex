@@ -2213,7 +2213,7 @@ var require_panel = __commonJS({
   <style>${glue}</style>
   <title>VIBEX</title>
 </head>
-<body>
+<body data-vibex-icon="${media("vibex-panel-logo.png")}">
   <script nonce="${nonce}" src="${media("webview.js")}"></script>
 </body>
 </html>`;

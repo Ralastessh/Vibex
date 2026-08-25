@@ -1099,6 +1099,9 @@ class VibexViewProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "main.js"),
     );
+    const iconUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "vibex-panel-logo.png"),
+    );
     return `<!doctype html>
 <html lang="ko">
 <head>
@@ -1175,7 +1178,7 @@ class VibexViewProvider {
 
     <section id="conversationPanel" class="conversation" aria-label="대화">
       <div id="emptyState" class="empty-state">
-        <div class="empty-mark">✦</div>
+        <img class="empty-mark" src="${iconUri}" alt="" aria-hidden="true">
         <h2>Vibex에서 작업하기</h2>
         <p>iPad와 VS Code의 요청이 같은 대화 흐름에 표시됩니다.</p>
       </div>

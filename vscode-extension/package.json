@@ -5,6 +5,7 @@
   "version": "0.9.5",
   "publisher": "vibex-local",
   "private": true,
+  "icon": "media/vibex-icon.png",
   "engines": {
     "vscode": "^1.96.2"
   },
@@ -42,7 +43,7 @@
         {
           "id": "vibexSecondaryViewContainer",
           "title": "VIBEX",
-          "icon": "media/vibex.svg"
+          "icon": "media/vibex-icon.png"
         }
       ]
     },

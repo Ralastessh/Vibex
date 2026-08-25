@@ -79,32 +79,13 @@ function codicon(name) {
   return el("span", `codicon codicon-${name}`);
 }
 
-/**
- * The same VIBEX mark used by the native Chat Session contribution.
- *
- * Keep this inline so it inherits VS Code's `descriptionForeground` through
- * the native `.chat-welcome-view-icon .codicon` rule in every color theme.
- */
 function vibexMark() {
-  const namespace = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(namespace, "svg");
-  svg.setAttribute("class", "codicon vibex-welcome-logo");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-
-  const body = document.createElementNS(namespace, "path");
-  body.setAttribute("d", "M4 5.5 10.1 19h3.8L20 5.5h-3.8L12 15.7 7.8 5.5H4Z");
-  body.setAttribute("fill", "currentColor");
-
-  const dot = document.createElementNS(namespace, "circle");
-  dot.setAttribute("cx", "12");
-  dot.setAttribute("cy", "6");
-  dot.setAttribute("r", "2");
-  dot.setAttribute("fill", "currentColor");
-  dot.setAttribute("opacity", ".65");
-
-  svg.append(body, dot);
-  return svg;
+  const image = document.createElement("img");
+  image.className = "vibex-welcome-logo";
+  image.src = document.body.dataset.vibexIcon || "";
+  image.alt = "";
+  image.setAttribute("aria-hidden", "true");
+  return image;
 }
 
 function renderMarkdown(text) {

@@ -2,9 +2,10 @@
   "name": "vibex",
   "displayName": "VIBEX",
   "description": "iPad와 VS Code에서 같은 VIBEX 프로젝트 및 로컬 에이전트 대화를 이어갑니다.",
-  "version": "0.4.13",
+  "version": "0.4.15",
   "publisher": "vibex",
   "license": "MIT",
+  "icon": "media/vibex-icon.png",
   "engines": {
     "vscode": "^1.115.0"
   },
@@ -43,8 +44,8 @@
         "displayName": "VIBEX",
         "description": "로컬 Codex / Claude Code 에이전트를 VIBEX 대화 하나에서 함께 사용합니다.",
         "icon": {
-          "light": "media/vibex-light.svg",
-          "dark": "media/vibex-dark.svg"
+          "light": "media/vibex-panel-logo.png",
+          "dark": "media/vibex-panel-logo.png"
         },
         "order": 4,
         "welcomeTitle": "VIBEX",
@@ -216,7 +217,7 @@
         {
           "id": "vibexPanelContainer",
           "title": "VIBEX",
-          "icon": "media/vibex.svg"
+          "icon": "media/vibex-icon.png"
         }
       ]
     },
@@ -226,7 +227,7 @@
           "id": "vibex.panel",
           "type": "webview",
           "name": "VIBEX",
-          "icon": "media/vibex.svg"
+          "icon": "media/vibex-icon.png"
         }
       ]
     }

@@ -178,6 +178,7 @@ private final class ProjectBlueprintWorkspace: ObservableObject {
 struct ProjectWorkspaceView: View {
     @ObservedObject var model: AppModel
     let project: ProjectView
+    let conversation: ConversationView
 
     @Environment(\.displayScale) private var displayScale
     @StateObject private var blueprint: ProjectBlueprintWorkspace
@@ -189,9 +190,10 @@ struct ProjectWorkspaceView: View {
     @State private var createdTask: TaskCreated?
     @State private var errorText: String?
 
-    init(model: AppModel, project: ProjectView) {
+    init(model: AppModel, project: ProjectView, conversation: ConversationView) {
         self.model = model
         self.project = project
+        self.conversation = conversation
         _blueprint = StateObject(
             wrappedValue: ProjectBlueprintWorkspace(projectId: project.projectId)
         )
@@ -231,6 +233,7 @@ struct ProjectWorkspaceView: View {
                     ? AnyView(ProjectLivePreviewView(
                         model: model,
                         project: project,
+                        conversationId: conversation.conversationId,
                         agentId: effectiveAgentId
                     ))
                     : nil,
@@ -252,9 +255,13 @@ struct ProjectWorkspaceView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 NavigationLink {
-                    ConversationListView(model: model, project: project)
+                    ConversationDetailView(
+                        model: model,
+                        project: project,
+                        conversation: conversation
+                    )
                 } label: {
-                    Label("대화 내역", systemImage: "bubble.left.and.bubble.right")
+                    Label("선택한 대화", systemImage: "bubble.left.and.bubble.right")
                 }
 
                 Menu {
@@ -350,13 +357,6 @@ struct ProjectWorkspaceView: View {
             ) else {
                 throw BridgeError(message: "프로젝트 설계 문서를 이미지로 만들지 못했습니다.", statusCode: nil)
             }
-            let conversations = try await model.client.conversations(projectId: project.projectId)
-            let conversation: ConversationView
-            if let existing = conversations.first {
-                conversation = existing
-            } else {
-                conversation = try await model.client.createConversation(projectId: project.projectId)
-            }
             let task = try await model.client.createTask(
                 projectId: project.projectId,
                 snapshot: snapshot,
@@ -385,61 +385,21 @@ struct ProjectWorkspaceView: View {
     }
 }
 
-/// UI·레이아웃 탭에서만 켤 수 있는 실제 PC 프론트엔드 작업면.
-/// 기존 대화가 있으면 이어 쓰고, 없을 때만 프로젝트 공용 대화를 하나 만든다.
+/// UI·레이아웃에서만 켤 수 있는 실제 PC 프론트엔드 작업면.
+/// 프로젝트 진입 시 사용자가 고른 대화 ID를 그대로 사용한다.
 private struct ProjectLivePreviewView: View {
     @ObservedObject var model: AppModel
     let project: ProjectView
+    let conversationId: String
     let agentId: String
 
-    @State private var conversationId: String?
-    @State private var loading = false
-    @State private var errorText: String?
-
     var body: some View {
-        Group {
-            if let conversationId {
-                ComposeView(
-                    model: model,
-                    project: project,
-                    conversationId: conversationId,
-                    agentId: agentId
-                )
-            } else {
-                VStack(spacing: 14) {
-                    if loading { ProgressView("대화와 프리뷰를 준비하는 중…") }
-                    if let errorText {
-                        Text(errorText).foregroundStyle(.red).multilineTextAlignment(.center)
-                    }
-                    if !loading {
-                        Button("다시 시도") { Task { await resolveConversation() } }
-                            .buttonStyle(.borderedProminent)
-                    }
-                }
-                .padding()
-            }
-        }
-        .task(id: project.projectId) { await resolveConversation() }
-    }
-
-    private func resolveConversation() async {
-        guard conversationId == nil, !loading else { return }
-        loading = true
-        defer { loading = false }
-        do {
-            let conversations = try await model.client.conversations(projectId: project.projectId)
-            if let existing = conversations.first {
-                conversationId = existing.conversationId
-            } else {
-                let created = try await model.client.createConversation(
-                    projectId: project.projectId
-                )
-                conversationId = created.conversationId
-            }
-            errorText = nil
-        } catch {
-            errorText = error.localizedDescription
-        }
+        ComposeView(
+            model: model,
+            project: project,
+            conversationId: conversationId,
+            agentId: agentId
+        )
     }
 }
 
@@ -693,6 +653,8 @@ private struct BlueprintDocumentEditor: View {
     let onDelete: (BlueprintPageDraft) -> Void
 
     @State private var settledZoom: CGFloat = 1
+    @State private var pageRailVisible = true
+    @State private var expandedPageWidth: CGFloat = 820
     @GestureState private var gestureZoom: CGFloat = 1
 
     private var selectedPage: BlueprintPageDraft? {
@@ -721,29 +683,39 @@ private struct BlueprintDocumentEditor: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
-                Divider()
+                // 프리뷰는 실행 중인 웹 화면 자체를 다루므로 문서 페이지 목록과
+                // 역할이 다르다. 설계 문서를 보고 있을 때만 페이지 레일을 표시한다.
+                if pageRailVisible && alternateMain == nil {
+                    Divider()
 
-                BlueprintPageRail(
-                    pages: pages,
-                    selectedPageId: selectedPageId,
-                    onSelect: { page in
-                        selectedPageId = page.id
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(page.id, anchor: .top)
-                        }
-                    },
-                    onAdd: { kind in
-                        let page = onAdd(kind)
-                        selectedPageId = page.id
-                        DispatchQueue.main.async {
-                            withAnimation { proxy.scrollTo(page.id, anchor: .top) }
-                        }
-                    },
-                    onDuplicate: onDuplicate,
-                    onDelete: onDelete
-                )
-                .frame(width: 220)
-                .background(Color(uiColor: .secondarySystemBackground))
+                    BlueprintPageRail(
+                        pages: pages,
+                        selectedPageId: selectedPageId,
+                        onCollapse: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                pageRailVisible = false
+                            }
+                        },
+                        onSelect: { page in
+                            selectedPageId = page.id
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(page.id, anchor: .top)
+                            }
+                        },
+                        onAdd: { kind in
+                            let page = onAdd(kind)
+                            selectedPageId = page.id
+                            DispatchQueue.main.async {
+                                withAnimation { proxy.scrollTo(page.id, anchor: .top) }
+                            }
+                        },
+                        onDuplicate: onDuplicate,
+                        onDelete: onDelete
+                    )
+                    .frame(width: 220)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -781,6 +753,10 @@ private struct BlueprintDocumentEditor: View {
                 .pickerStyle(.segmented)
                 .frame(width: 210)
             }
+            if !pageRailVisible {
+                Divider().frame(height: 26)
+                expandPageRailButton
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -788,11 +764,23 @@ private struct BlueprintDocumentEditor: View {
 
     private var continuousPages: some View {
         GeometryReader { geometry in
-            let pageWidth = max(680, geometry.size.width - 32)
+            // 페이지의 논리 좌표계는 고정하고, 사이드바가 차지한 폭만큼 표시만
+            // 축소한다. 기존 PKDrawing 좌표를 잘라내지 않고 페이지 전체가 작아진다.
+            let availableWidth = max(1, geometry.size.width - 32)
+            let pageWidth = max(820, expandedPageWidth)
             let pageHeight = max(620, pageWidth * 0.72)
+            let fitScale = min(1, availableWidth / pageWidth)
+            let displayScale = fitScale * zoom
+            let displayedWidth = pageWidth * displayScale
+            let displayedHeight = pageHeight * displayScale
+            let allowsHorizontalScroll = displayedWidth > availableWidth + 0.5
+            let scrollAxes: Axis.Set = allowsHorizontalScroll
+                ? [.horizontal, .vertical]
+                : .vertical
 
-            ScrollView([.horizontal, .vertical]) {
-                LazyVStack(spacing: 24) {
+            ScrollView(scrollAxes) {
+                // PDF의 연속 보기처럼 페이지 바깥 여백 없이 바로 이어 붙인다.
+                LazyVStack(spacing: 0) {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
                         BlueprintDocumentPage(
                             page: page,
@@ -800,18 +788,21 @@ private struct BlueprintDocumentEditor: View {
                             tool: tool
                         )
                         .frame(width: pageWidth, height: pageHeight)
-                        .scaleEffect(zoom, anchor: .topLeading)
+                        .scaleEffect(displayScale, anchor: .topLeading)
                         .frame(
-                            width: pageWidth * zoom,
-                            height: pageHeight * zoom,
+                            width: displayedWidth,
+                            height: displayedHeight,
                             alignment: .topLeading
                         )
                         .id(page.id)
                         .onTapGesture { selectedPageId = page.id }
                     }
                 }
-                .padding(16)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
             }
+            // 손가락을 끝까지 밀어도 문서 모서리 바깥의 빈 영역이 드러나지 않는다.
+            .background(ScrollBounceConfigurator())
             .simultaneousGesture(
                 MagnificationGesture()
                     .updating($gestureZoom) { value, state, _ in state = value }
@@ -829,6 +820,60 @@ private struct BlueprintDocumentEditor: View {
                 .buttonStyle(.bordered)
                 .padding(18)
                 .accessibilityLabel("확대 비율 초기화")
+            }
+            .onAppear {
+                rememberExpandedPageWidth(availableWidth)
+            }
+            .onChange(of: geometry.size.width) { width in
+                rememberExpandedPageWidth(max(1, width - 32))
+            }
+        }
+    }
+
+    private func rememberExpandedPageWidth(_ availableWidth: CGFloat) {
+        // 접힌 상태의 최대 폭을 페이지의 고정 논리 폭으로 삼는다. 사이드바를
+        // 다시 열면 이 폭을 유지한 채 페이지 전체를 남은 공간에 맞춰 축소한다.
+        guard !pageRailVisible else { return }
+        expandedPageWidth = max(expandedPageWidth, availableWidth)
+    }
+
+    private var expandPageRailButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                pageRailVisible = true
+            }
+        } label: {
+            Image(systemName: "sidebar.right")
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("페이지 목록 펼치기")
+    }
+}
+
+/// SwiftUI `ScrollView`의 기본 고무줄 효과를 끈다. 스크롤 자체는 유지하되
+/// 콘텐츠의 좌우·상하 끝을 넘어 빈 배경까지 끌려오는 현상만 막는다.
+private struct ScrollBounceConfigurator: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        configureEnclosingScrollView(from: view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        configureEnclosingScrollView(from: uiView)
+    }
+
+    private func configureEnclosingScrollView(from view: UIView) {
+        DispatchQueue.main.async {
+            var ancestor = view.superview
+            while let current = ancestor {
+                if let scrollView = current as? UIScrollView {
+                    scrollView.bounces = false
+                    scrollView.alwaysBounceHorizontal = false
+                    return
+                }
+                ancestor = current.superview
             }
         }
     }
@@ -867,15 +912,14 @@ private struct BlueprintDocumentPage: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.secondary.opacity(0.3)))
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+        .overlay(Rectangle().stroke(.secondary.opacity(0.22), lineWidth: 0.5))
     }
 }
 
 private struct BlueprintPageRail: View {
     let pages: [BlueprintPageDraft]
     let selectedPageId: UUID?
+    let onCollapse: () -> Void
     let onSelect: (BlueprintPageDraft) -> Void
     let onAdd: (BlueprintSectionKind) -> Void
     let onDuplicate: (BlueprintPageDraft) -> Void
@@ -890,6 +934,10 @@ private struct BlueprintPageRail: View {
             HStack {
                 Text("페이지").font(.headline)
                 Spacer()
+                Button(action: onCollapse) {
+                    Image(systemName: "sidebar.right")
+                }
+                .accessibilityLabel("페이지 목록 접기")
                 Menu {
                     ForEach(BlueprintSectionKind.allCases) { kind in
                         Button { onAdd(kind) } label: {
