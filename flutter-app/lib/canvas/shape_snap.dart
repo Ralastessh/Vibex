@@ -1,8 +1,7 @@
 import 'dart:math';
 import 'dart:ui';
 
-/// 손그림 획을 깔끔한 도형으로 스냅 (네모·정사각형·원·타원·삼각형·직선).
-/// ipad-app/ShapeSnap.swift의 Dart 이식.
+/// 손그림 획을 깔끔한 도형으로 스냅 (네모·정사각형·원·타원·삼각형·직선·화살표).
 
 enum ShapeKind { rectangle, square, circle, ellipse, triangle, line, arrow }
 

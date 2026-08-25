@@ -1,17 +1,17 @@
 import UIKit
 
-/// 툴바에서 고르는 도구.
+// 툴바에서 고르는 도구.
 enum PenKind {
     case pen, marker, eraser, lasso
 }
 
-/// 지우개 방식: 획 일부만(픽셀) vs 획 통째로(오브젝트).
+// 지우개 방식: 획 일부만(픽셀) vs 획 통째로(오브젝트).
 enum EraserMode {
     case pixel   // 닿은 부분만 지움 → 획이 쪼개짐
     case object  // 닿은 획 전체를 지움
 }
 
-/// 현재 선택된 도구 상태.
+// 현재 선택된 도구.
 struct DrawTool: Equatable {
     static let palette: [UIColor] = [
         UIColor(hex: "#111111"),
@@ -25,20 +25,18 @@ struct DrawTool: Equatable {
     var kind: PenKind = .pen
     var color: UIColor = DrawTool.palette[0]
     var width: CGFloat = 5
-    // 지우개는 펜과 굵기 척도가 달라 따로 둔다.
     var eraserWidth: CGFloat = 24
     var eraserMode: EraserMode = .pixel
 
     var usesColor: Bool { kind == .pen || kind == .marker }
 }
 
-/// 획의 한 점. 필압은 0~1.
+// 획의 한 점. 필압은 0~1.
 struct StrokePoint {
     let location: CGPoint
     let pressure: CGFloat
 }
 
-/// 완성된 획 하나.
 struct Stroke {
     let kind: PenKind
     var color: UIColor

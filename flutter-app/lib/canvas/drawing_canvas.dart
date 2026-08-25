@@ -11,7 +11,7 @@ import 'stroke.dart';
 import 'stroke_renderer.dart';
 
 /// 직접 구현한 필기 캔버스.
-/// 스타일러스 필압·팜 리젝션·지우개 2모드·올가미 선택/이동/크기조절 지원.
+/// 필압·팜 리젝션·지우개 2모드·올가미 선택/이동/크기조절.
 class DrawingCanvas extends StatefulWidget {
   const DrawingCanvas({
     super.key,

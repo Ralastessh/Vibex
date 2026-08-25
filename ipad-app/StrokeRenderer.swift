@@ -1,10 +1,9 @@
 import UIKit
 
-/// 획 그리기 공용 로직. 화면 렌더와 전송용 PNG 내보내기가 같이 쓴다.
+// 획 그리기 공용 로직. 화면 렌더와 전송용 PNG가 같이 쓴다.
 enum StrokeRenderer {
 
-    /// 업로드 한 장의 최대 변(픽셀). 큰 이미지는 업로드만 느려지고
-    /// 해석 토큰만 늘 뿐 정확도에 도움이 되지 않는다.
+    // 업로드 한 장의 최대 변(픽셀). 더 키워도 정확도는 안 오르고 업로드만 느려진다.
     static let maxPixelDimension: CGFloat = 2048
 
     static func draw(_ strokes: [Stroke], in context: CGContext) {
@@ -54,7 +53,7 @@ enum StrokeRenderer {
         }
     }
 
-    /// 획만 있는 투명 배경 PNG. 서버의 `canvasImage`와 같은 형식.
+    // 획만 있는 투명 배경 PNG. 서버의 canvasImage와 같은 형식.
     static func pngData(strokes: [Stroke], size: CGSize, displayScale: CGFloat) -> Data? {
         guard size.width > 0, size.height > 0 else { return nil }
         let format = UIGraphicsImageRendererFormat.preferred()
@@ -65,8 +64,7 @@ enum StrokeRenderer {
         }
     }
 
-    /// 화면 크기와 배율에서 실제 출력 배율을 정한다. 획과 배경이 같은 값을 써야
-    /// 두 장의 픽셀 크기가 어긋나지 않는다.
+    // 획과 배경이 같은 값을 써야 두 장의 픽셀 크기가 안 어긋난다.
     static func outputScale(for size: CGSize, displayScale: CGFloat) -> CGFloat {
         let longest = max(size.width, size.height)
         guard longest > 0 else { return 1 }

@@ -15,7 +15,6 @@ struct LivePreviewEditorView: View {
     @StateObject private var canvas = DrawingController()
     @State private var drawingMode = false
     @State private var canvasSize: CGSize = .zero
-    // 두 손가락 핀치 확대. 라이브 렌더와 획을 같은 배율로 함께 키운다.
     @State private var zoom = PinchZoom()
     @State private var note = ""
     @State private var sending = false
@@ -37,7 +36,6 @@ struct LivePreviewEditorView: View {
                     LiveWebView(webView: webView, url: previewURL)
                         .allowsHitTesting(!drawingMode && questions.isEmpty)
 
-                    // 그림은 손 모드에서도 계속 보인다. 입력만 막는다.
                     DrawingCanvas(
                         controller: canvas,
                         allowFingerDrawing: allowFingerDrawing,

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../canvas/drawing_controller.dart';
 import '../canvas/stroke.dart';
 
-/// 항상 보이는 필기 툴바 — 펜/형광펜/화살표/지우개 + 색·두께.
+/// 항상 보이는 필기 툴바 — 펜/형광펜/지우개/올가미 + 색·두께.
 class DrawingToolbar extends StatelessWidget {
   const DrawingToolbar({super.key, required this.controller});
 

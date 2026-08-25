@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// 서버 없이 캔버스만 여는 연습장. flutter-app의 `DrawingScreen`과 같은 화면이다.
-/// PC 브리지를 켜지 않고 필기 도구만 시험할 때 쓴다.
+// 서버 없이 캔버스만 여는 연습장. 브리지를 안 켜고 필기 도구만 볼 때 쓴다.
 struct DrawingSandboxView: View {
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
 

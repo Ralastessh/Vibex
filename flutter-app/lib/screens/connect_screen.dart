@@ -30,14 +30,15 @@ class _ConnectScreenState extends State<ConnectScreen> {
       final client = BridgeClient(_urlController.text);
       await client.health();
       final projects = await client.listProjects();
+      if (!mounted) return;
       setState(() {
         _client = client;
         _projects = projects;
       });
     } on Exception catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 

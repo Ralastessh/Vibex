@@ -6,7 +6,6 @@ import UIKit
 struct HarnessView: View {
     @AppStorage("bridgeBaseURL") private var baseURLText = "http://127.0.0.1:8787"
     @AppStorage("bridgeProjectId") private var projectId = "demo"
-    /// 시뮬레이터에는 펜슬이 없어 기본값(펜만 허용)으로는 그릴 수 없다.
     @AppStorage("allowFingerDrawing") private var allowFingerDrawing = false
 
     @State private var projects: [ProjectView] = []

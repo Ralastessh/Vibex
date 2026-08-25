@@ -34,7 +34,6 @@ class StrokePoint {
   final double pressure;
 }
 
-/// 완성된 획 하나.
 class Stroke {
   const Stroke({
     required this.kind,

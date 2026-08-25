@@ -13,7 +13,6 @@ import '../util/window_capture.dart';
 import '../widgets/drawing_toolbar.dart';
 
 /// PC에서 실행한 프론트엔드를 그대로 조작하고, 같은 화면 좌표계에 주석을 그린다.
-/// ipad-app/LivePreviewEditorView.swift 이식.
 class EditorScreen extends StatefulWidget {
   const EditorScreen({
     super.key,
@@ -103,10 +102,13 @@ class _EditorScreenState extends State<EditorScreen> {
         targetHeight: (size.height * scale).round(),
       );
     } finally {
-      setState(() {
-        _capturing = false;
-        _viewerTransform.value = savedTransform;
-      });
+      // 캡처 도중 화면을 빠져나갔을 수 있다.
+      if (mounted) {
+        setState(() {
+          _capturing = false;
+          _viewerTransform.value = savedTransform;
+        });
+      }
     }
   }
 
@@ -138,6 +140,7 @@ class _EditorScreenState extends State<EditorScreen> {
         clientTaskId: _clientTaskId,
         conversationId: _conversationId,
       );
+      if (!mounted) return;
       setState(() {
         _activeTaskId = result.taskId;
         _conversationId = result.conversationId ?? _conversationId;
@@ -221,7 +224,7 @@ class _EditorScreenState extends State<EditorScreen> {
       _freeTextController.clear();
       await _monitor(taskId);
     } on Exception catch (e) {
-      setState(() => _questions = [question]);
+      if (mounted) setState(() => _questions = [question]);
       _showError(e.toString());
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -233,6 +236,7 @@ class _EditorScreenState extends State<EditorScreen> {
     if (taskId == null) return;
     try {
       await widget.client.cancel(taskId);
+      if (!mounted) return;
       setState(() {
         _activeTaskId = null;
         _questions = [];

@@ -1,13 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// 두 손가락 핀치 진행 단계.
 enum PinchPhase {
     case began, changed, ended
 }
 
-/// 핀치 배율 상태. `DrawingCanvas`의 `onPinch`를 그대로 흘려 넣으면 된다.
-/// 라이브 프리뷰와 연습장이 같이 쓴다.
+// 핀치 배율 상태. `DrawingCanvas`의 onPinch를 그대로 흘려 넣는다.
 struct PinchZoom {
     private(set) var scale: CGFloat = 1
     private(set) var anchor: UnitPoint = .center
@@ -31,15 +29,15 @@ struct PinchZoom {
     }
 }
 
-/// 직접 구현한 필기 캔버스.
-/// 스타일러스 필압·팜 리젝션·지우개 2모드·올가미 선택/이동/크기조절 지원.
+// 직접 구현한 필기 캔버스.
+// 필압·팜 리젝션·지우개 2모드·올가미 선택/이동/크기조절.
 struct DrawingCanvas: UIViewRepresentable {
     @ObservedObject var controller: DrawingController
 
-    /// 손가락 입력 허용(시뮬레이터·개발용). 끄면 애플펜슬만 받는다.
+    // 손가락 입력 허용(시뮬레이터용). 끄면 애플펜슬만 받는다.
     var allowFingerDrawing = false
 
-    /// 두 손가락 핀치. 배율과 캔버스 안의 초점을 넘겨 상위 뷰가 확대에 쓴다.
+    // 두 손가락 핀치. 상위 뷰가 이걸 받아 확대한다.
     var onPinch: ((PinchPhase, CGFloat, CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> DrawingCanvasView {
@@ -53,7 +51,7 @@ struct DrawingCanvas: UIViewRepresentable {
 
     func updateUIView(_ view: DrawingCanvasView, context: Context) {
         apply(to: view)
-        // 컨트롤러가 바뀌면 SwiftUI가 여기로 다시 들어온다 — 그때 다시 그린다.
+        // 컨트롤러가 바뀌면 여기로 다시 들어온다.
         view.setNeedsDisplay()
     }
 
@@ -106,7 +104,7 @@ final class DrawingCanvasView: UIView {
         return allowFingerDrawing && (touch.type == .direct || touch.type == .indirectPointer)
     }
 
-    /// 필압 0~1. 필압을 못 재는 입력(손가락 등)은 1로 본다.
+    // 필압 0~1. 못 재는 입력(손가락 등)은 1로 본다.
     private func pressure(of touch: UITouch) -> CGFloat {
         guard touch.maximumPossibleForce > 0 else { return 1 }
         return max(0, min(1, touch.force / touch.maximumPossibleForce))
@@ -142,8 +140,7 @@ final class DrawingCanvasView: UIView {
         let point = touch.location(in: self)
         switch gesture {
         case .draw:
-            // 펜슬은 화면 주사율보다 빠르게 표본을 만든다. 뭉쳐 온 표본까지 다 받아야
-            // 획이 각지지 않는다.
+            // 펜슬은 화면 주사율보다 빠르게 표본을 만든다. 다 받아야 획이 안 각진다.
             for sample in event?.coalescedTouches(for: touch) ?? [touch] {
                 current.append(StrokePoint(
                     location: sample.location(in: self), pressure: pressure(of: sample)
@@ -192,7 +189,7 @@ final class DrawingCanvasView: UIView {
         cancelGesture()
     }
 
-    /// 진행 중인 제스처를 되돌린다. undo 스택은 건드리지 않는다.
+    // 되돌리되 undo 스택은 건드리지 않는다.
     private func cancelGesture() {
         if gesture == .move || gesture == .resize, let base {
             controller?.setStrokes(base)

@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
 
-/// 지우개 한 점 적용. 판정은 점이 아니라 **선분** 기준이라
-/// 점이 성긴 획(스냅된 직선 등)도 중간 아무 데나 닿으면 지워진다.
+// 지우개 한 점 적용. 판정은 점이 아니라 선분 기준이라
+// 점이 성긴 획(스냅된 직선 등)도 중간 아무 데나 닿으면 지워진다.
 enum Eraser {
 
     struct Result {
@@ -73,7 +73,7 @@ enum Eraser {
         return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
     }
 
-    /// 이웃 점 간격이 spacing 이하가 되도록 보간해 채운다.
+    // 이웃 점 간격이 spacing 이하가 되도록 보간해 채운다.
     private static func resampled(_ points: [StrokePoint], spacing: CGFloat) -> [StrokePoint] {
         guard let first = points.first else { return [] }
         var out: [StrokePoint] = [first]

@@ -6,7 +6,7 @@ import 'package:flutter/painting.dart';
 
 import 'stroke.dart';
 
-/// 획 그리기 공용 로직. 화면 페인터와 전송용 PNG 내보내기가 같이 쓴다.
+/// 획 그리기 공용 로직. 화면 페인터와 전송용 PNG가 같이 쓴다.
 
 void paintStrokes(Canvas canvas, List<Stroke> strokes) {
   for (final s in strokes) {
@@ -47,7 +47,7 @@ void paintStroke(Canvas canvas, PenKind kind, Color color, double width,
   }
 }
 
-/// 업로드 한 장의 최대 변(픽셀). CanvasComposer.maxPixelDimension과 동일.
+/// 업로드 한 장의 최대 변(픽셀). 더 키워도 정확도는 안 오르고 업로드만 느려진다.
 const double kMaxPixelDimension = 2048;
 
 /// 획만 있는 투명 배경 PNG. 서버의 `canvasImage`와 같은 형식.

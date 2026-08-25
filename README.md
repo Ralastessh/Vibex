@@ -30,9 +30,10 @@ WKWebView 라이브 UI ◀──────────────────
 
 ```
 ┌─────────────────────────────┐
-│ iPad App                    │
-│ SwiftUI + PencilKit         │
-│ URLSession + WebSocket      │
+│ iPad App      SwiftUI       │
+│ Android App   Flutter       │
+│ Custom stroke engine        │
+│ WebView + REST              │
 └──────────────┬──────────────┘
                │
         Tailscale Network
@@ -91,13 +92,27 @@ WKWebView 라이브 UI ◀──────────────────
 - **iPad 선택 피드백** — 드로잉 요청이 모호하면 선택지 또는 직접 입력으로 답한다
 - **연결이 끊겨도** iMac은 작업을 계속하고, 재접속하면 결과가 그대로 있음
 
+## Android 앱
+같은 워크플로우를 Android 태블릿·폰에서 쓰기 위한 Flutter 앱입니다.
+
+iPad 앱과 **드로잉 엔진을 같은 설계로 구현**했습니다. 팔레트·두께·지우개 방식·도형
+인식 임계값까지 두 앱이 같은 값을 씁니다. 화면에 그린 획은 어느 기기에서 보내든
+같은 형식(투명 PNG + 현재 렌더 JPEG)으로 Bridge에 도착하므로, 서버는 기기를
+구분하지 않습니다.
+
+- 스타일러스 필압과 팜 리젝션, 손가락 입력은 설정으로 전환
+- 펜 · 형광펜 · 지우개(일부/전체) · 올가미(선택·이동·크기·색·삭제)
+- 손그림을 네모·원·삼각형·직선·화살표로 자동 정리
+- WebView에 뜬 PC 프론트엔드를 직접 조작하다가 그리기 모드로 전환
+
 ---
 
 ## 기술 구성
 
 | 영역 | 사용 |
 |---|---|
-| iPad 앱 | SwiftUI · PencilKit (iPadOS 17+) |
+| iPad 앱 | SwiftUI · 자체 드로잉 엔진 (iPadOS 16+) |
+| Android 태블릿·폰 앱 | Flutter · Dart 3.11 · 같은 드로잉 엔진 |
 | PC와 태블릿PC 간 연결 소스 | Python 3.12+ · FastAPI |
 | 그림 해석·코드 수정 | Claude Code CLI 또는 Codex CLI(ChatGPT 로그인) |
 | 원격 연결 | Tailscale |
@@ -194,12 +209,10 @@ Mac의 Tailscale 머신 이름을 `vibex-pc`로 맞추고 Serve를 자동 구성
 답변 UI는 iPad 앱에만 표시됩니다.
 
 ```
-src/             PC와 태블릿PC 간 연결 오픈소스
-ipad-app/        iPad 앱 — Swift 파일
+backend/          PC Bridge — FastAPI 서버
+ipad-app/         iPad 앱 — SwiftUI
+flutter-app/      Android 태블릿·폰 앱 — Flutter
 vscode-extension/ VS Code Secondary Sidebar WebView
-docs/            개발 계획 및 검증 기록
-protocol/        예제 스케치 이미지
-examples/        데모용 React 로그인 화면
-scripts/         실행·샘플 생성 스크립트
-CLAUDE.md        구현 명세서
+docs/             개발 계획 및 검증 기록
+test-projects/    데모용 로컬 테스트 저장소(git 제외)
 ```

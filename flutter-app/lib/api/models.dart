@@ -1,5 +1,4 @@
 /// 서버 응답 모델. 필드 이름은 백엔드 alias(camelCase)를 그대로 따른다.
-/// ipad-app/BridgeClient.swift의 모델부 이식.
 library;
 
 enum TaskStatus {

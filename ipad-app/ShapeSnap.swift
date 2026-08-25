@@ -56,7 +56,7 @@ enum ShapeSnap {
                 let shaft = hypot(tip.x - start.x, tip.y - start.y)
                 let headDists = corners.dropFirst(2).map { hypot($0.x - tip.x, $0.y - tip.y) }
                 let headOk = headDists.allSatisfy { $0 <= 0.45 * shaft }
-                // 우발적 꺾임 제외 — 화살촉이라 부를 만큼은 커야 한다.
+                // 우발적 꺾임 제외
                 let headBigEnough = headDists.contains { $0 >= max(0.1 * shaft, 12) }
                 if shaft >= 0.5 * diag, headOk, headBigEnough {
                     return SnappedShape(kind: .arrow, outline: arrow(from: start, to: tip))
@@ -72,8 +72,6 @@ enum ShapeSnap {
         let squareish = abs(w - h) / max(w, h) < 0.18
 
         // ── 타원 / 원 검사 ────────────────────────────────
-        // 정규화 반경 평균은 원·타원이 ≈1.0, 사각형이 ≈1.15. mean으로 사각형을
-        // 걸러내고 std(떨림)는 넉넉히 둬서 손으로 대충 그린 원도 잡는다.
         if rx > 4 && ry > 4 {
             var sum: CGFloat = 0
             var sum2: CGFloat = 0
@@ -143,7 +141,6 @@ enum ShapeSnap {
         let ux = dx / len, uy = dy / len
         let head = min(max(len * 0.22, 12), 30)
         let c = cos(CGFloat.pi / 7), s = sin(CGFloat.pi / 7) // ≈25.7°
-        // 끝점에서 ±각도로 뻗은 두 갈래. a→b→b1→b→b2 한 획으로 그린다.
         let b1 = CGPoint(x: b.x - head * (ux * c - uy * s), y: b.y - head * (uy * c + ux * s))
         let b2 = CGPoint(x: b.x - head * (ux * c + uy * s), y: b.y - head * (uy * c - ux * s))
         return densify([a, b, b1, b, b2])

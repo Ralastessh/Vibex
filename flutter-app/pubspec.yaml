@@ -1,5 +1,5 @@
 name: vibex
-description: "A new Flutter project."
+description: "Vibex — PC 에이전트에 그림으로 작업을 맡기는 Android 앱."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

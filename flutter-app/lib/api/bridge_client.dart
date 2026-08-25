@@ -17,7 +17,7 @@ class BridgeException implements Exception {
   String toString() => message;
 }
 
-/// PC의 Desktop Bridge와 통신한다. ipad-app/BridgeClient.swift 이식.
+/// PC의 Desktop Bridge와 통신한다.
 class BridgeClient {
   BridgeClient(String baseUrl) : root = _normalizeRoot(baseUrl);
 

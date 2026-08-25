@@ -1,9 +1,9 @@
 import CoreGraphics
 
-/// 올가미 폴리곤 판정.
+// 올가미 폴리곤 판정.
 enum Lasso {
 
-    /// 점이 폴리곤 안에 있는지 (even-odd ray casting).
+    // even-odd ray casting.
     static func contains(_ polygon: [CGPoint], _ p: CGPoint) -> Bool {
         var inside = false
         var j = polygon.count - 1
@@ -18,7 +18,7 @@ enum Lasso {
         return inside
     }
 
-    /// 폴리곤에 점이 하나라도 들어간 획들의 인덱스.
+    // 폴리곤에 점이 하나라도 들어간 획들의 인덱스.
     static func strokesInside(_ strokes: [Stroke], polygon: [CGPoint]) -> Set<Int> {
         guard polygon.count >= 3 else { return [] }
         var result: Set<Int> = []

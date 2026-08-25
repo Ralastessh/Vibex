@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'stroke.dart';
 
-/// 올가미 폴리곤 판정. ipad-app/SelectionOverlay.swift의 판정 로직 이식.
+/// 올가미 폴리곤 판정.
 
 /// 점이 폴리곤 안에 있는지 (even-odd ray casting).
 bool pointInPolygon(Offset p, List<Offset> poly) {

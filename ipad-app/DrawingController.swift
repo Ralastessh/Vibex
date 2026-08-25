@@ -1,7 +1,7 @@
 import Combine
 import UIKit
 
-/// 캔버스 상태(획 목록·도구·선택·undo/redo)를 들고 있는 컨트롤러.
+// 획·도구·선택·undo/redo 상태.
 final class DrawingController: ObservableObject {
     @Published var tool = DrawTool()
     @Published private(set) var strokes: [Stroke] = []
@@ -13,13 +13,13 @@ final class DrawingController: ObservableObject {
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
-    /// 변경 직전에 호출해 현재 상태를 undo 스택에 쌓는다.
+    // 변경 직전에 불러 현재 상태를 쌓는다.
     func pushSnapshot() {
         undoStack.append(strokes)
         redoStack.removeAll()
     }
 
-    /// 이미 반영된 변경에 대해 시작 시점(base)을 undo 스택에 쌓는다(이동/크기조절).
+    // 이미 반영된 변경은 시작 시점을 쌓는다(이동·크기조절).
     func commitFrom(_ base: [Stroke]) {
         undoStack.append(base)
         redoStack.removeAll()
