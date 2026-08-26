@@ -1,0 +1,294 @@
+/*
+ * Vibex webview glue.
+ *
+ * RULE: no visual design lives here. Every color, spacing, radius and font of
+ * the chat surface comes verbatim from media/native-chat.css (extracted from
+ * VS Code itself). This file only contains:
+ *   1. runtime CSS variables VS Code normally injects from JavaScript,
+ *   2. the codicon @font-face (font ships with the extension),
+ *   3. host-page plumbing a webview needs because it is not the workbench
+ *      (scroll container sizing, a transparent <textarea> standing in for the
+ *      Monaco input editor, dropdown positioning).
+ * Anything that would CHANGE how the native chat looks is forbidden here.
+ */
+
+/* 1. Design tokens (spacing/radius/font scales) are extracted from the
+      workbench's own registration table into native-chat.css by the extractor.
+      Only the chat font-family indirection lives here, because the workbench
+      resolves it from a user setting at runtime. */
+:root {
+  --vscode-chat-font-family: var(--vscode-font-family);
+}
+
+/* 2. Codicon icon font (the .codicon glyph rules are in native-chat.css). */
+@font-face {
+  font-family: "codicon";
+  font-display: block;
+  src: url("{{CODICON_URI}}") format("truetype");
+}
+.codicon[class*="codicon-"] {
+  font: normal normal normal 16px/1 codicon;
+  display: inline-block;
+  text-decoration: none;
+  text-rendering: auto;
+  text-align: center;
+  text-transform: none;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* 3. Host plumbing. */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--vscode-font-family);
+  font-size: 13px; /* workbench chat default font size */
+  color: var(--vscode-foreground);
+}
+
+/* The webview body plays the role of the sidebar pane. */
+body > .interactive-session {
+  max-width: none; /* the 950px cap is for the editor surface; panes are full width */
+  height: 100%;
+}
+
+/* Scroll region standing in for the workbench's virtualized list. */
+.vibex-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.vibex-conversation-header {
+  flex: 0 0 auto;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.vibex-conversation-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+/* Native Chat normally puts the welcome container in a flex list host. The
+   sidebar transcript is a lightweight scroll host, so give its sole empty
+   state the same available height without changing any visual tokens. */
+.vibex-list > .chat-welcome-view-container {
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.chat-welcome-view-icon.large-icon .vibex-welcome-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 24px;
+  object-fit: contain;
+}
+
+/* Stand-in for the Monaco editor inside .chat-editor-container: completely
+   transparent; all box styling comes from .chat-input-container rules. */
+.chat-editor-container textarea.vibex-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  /* 글자는 뒤의 미러(.vibex-input-mirror)가 그린다. 캐럿·선택 영역만 여기서. */
+  color: transparent;
+  caret-color: var(--vscode-input-foreground);
+  position: relative;
+  font-family: var(--vscode-chat-font-family);
+  font-size: 13px;
+  line-height: 1.5;
+  /* Monaco's chat editor keeps the first baseline away from the rounded top
+     edge. The textarea stand-in must provide that inset itself. */
+  padding: 8px 0 0;
+  margin: 0;
+  min-height: 36px;
+  max-height: 240px;
+  box-sizing: border-box;
+}
+.chat-editor-container textarea.vibex-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+/* Dropdown host for the model / option pickers. Chrome uses VS Code's own
+   dropdown theme tokens; item hover uses the list tokens — no invented colors. */
+/* Appended to <body> and positioned in viewport space by main.js, because
+   every composer ancestor clips overflow. */
+.vibex-menu {
+  position: fixed;
+  min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 100;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 5px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+  padding: 4px 0;
+}
+.vibex-menu .vibex-menu-item {
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vibex-menu .vibex-menu-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.vibex-menu .vibex-menu-item.checked {
+  color: var(--vscode-list-highlightForeground);
+}
+.vibex-menu .vibex-menu-group {
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  opacity: 0.7;
+  user-select: none;
+}
+.vibex-picker-host {
+  position: relative;
+}
+
+/* The `/` `@` assist popup reuses the menu chrome above, but anchors to the
+   composer instead of the viewport so it follows the box as it grows. */
+/* Position/size are set from JS (positionAssist) in viewport space, because
+   the composer clips overflow and cannot host the popup. */
+.vibex-assist {
+  min-width: 0;
+  max-height: 220px;
+}
+.vibex-assist .vibex-menu-item {
+  white-space: nowrap;
+  overflow: hidden;
+}
+.vibex-assist .vibex-assist-label {
+  flex: 0 0 auto;
+}
+.vibex-assist .vibex-assist-description {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* The workbench lays the two composer toolbars out with its own flexbox that
+   lives in JS-measured code; only the row direction is needed here. All item
+   visuals come from the native rules via the exact class structure. */
+.chat-input-toolbars {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.monaco-toolbar .monaco-action-bar > .actions-container {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.monaco-action-bar .action-item {
+  display: flex;
+  align-items: center;
+}
+.monaco-action-bar a.action-label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--vscode-icon-foreground);
+}
+
+
+/* ── 입력 토큰 데코레이션 미러 ─────────────────────────────────────
+   textarea 는 부분 스타일이 불가능하므로, 동일한 글꼴·줄바꿈 규칙으로
+   텍스트를 다시 그리는 레이어. 토큰 색은 네이티브 chat-agent-command 가
+   쓰는 것과 같은 테마 토큰(chat.slashCommandBackground/Foreground)이다. */
+.interactive-input-editor {
+  position: relative;
+}
+.vibex-input-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-chat-font-family);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 0 0;
+  box-sizing: border-box;
+}
+.vibex-input-mirror .vibex-token {
+  background-color: var(--vscode-chat-slashCommandBackground);
+  color: var(--vscode-chat-slashCommandForeground);
+  border-radius: 4px;
+}
+
+/* 0.9.7에서 사용한 border 기반 링. 네이티브 Codicon의 steps(30) 규칙과
+   스트리밍 재렌더링의 아이콘 상태를 완전히 분리한다. */
+.vibex-response-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  color: var(--vscode-descriptionForeground);
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: vibex-response-spin .8s linear infinite;
+  will-change: transform;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+@keyframes vibex-response-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 첨부 칩 내부: 칩 박스 자체는 네이티브 규칙이 그린다. */
+.chat-attached-context-attachment .monaco-icon-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px 0 3px;
+  min-width: 0;
+}
+.chat-attached-context-attachment .monaco-icon-label .codicon {
+  font-size: 12px;
+}
+.chat-attached-context-attachment .vibex-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attached-context-attachment .vibex-pill-remove {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.chat-attached-context-attachment .vibex-pill-remove:hover {
+  opacity: 1;
+}
+.chat-attached-context-attachment .vibex-pill-remove .codicon {
+  font-size: 12px;
+}

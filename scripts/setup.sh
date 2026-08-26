@@ -80,4 +80,4 @@ fi
 
 echo
 echo "완료. 백엔드 실행:"
-echo "  backend/.venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8787 --app-dir backend"
+echo "  backend/.venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8787 --no-proxy-headers --app-dir backend"

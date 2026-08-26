@@ -112,7 +112,7 @@ struct TailscaleDeviceView: Decodable, Identifiable {
     let isSelf: Bool
 
     var id: String { dnsName }
-    var bridgeURL: URL? { URL(string: "http://\(dnsName):8788") }
+    var bridgeURL: URL? { URL(string: "http://\(dnsName):8787") }
 }
 
 struct TaskView: Decodable {
@@ -248,6 +248,18 @@ struct BridgeClient {
         try await sendJSON(
             path: "projects/\(projectId)/conversations",
             body: ["title": "새 대화"],
+            as: ConversationView.self
+        )
+    }
+
+    func deleteConversation(
+        projectId: String, conversationId: String
+    ) async throws -> ConversationView {
+        try await send(
+            request(
+                path: "projects/\(projectId)/conversations/\(conversationId)",
+                method: "DELETE"
+            ),
             as: ConversationView.self
         )
     }

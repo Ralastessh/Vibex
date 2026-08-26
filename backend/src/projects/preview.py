@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import socket
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,12 @@ class PreviewSession:
     log_file: BinaryIO | None = None
 
 
+@dataclass(frozen=True)
+class PreviewLaunch:
+    command: list[str]
+    cwd: Path
+
+
 def _log_tail(log_file: BinaryIO, limit: int = 2_000) -> str:
     try:
         log_file.flush()
@@ -48,8 +55,7 @@ def _with_log(message: str, log_file: BinaryIO) -> str:
     return f"{message}\n\n실행 로그:\n{tail}" if tail else message
 
 
-def _package_json(project: Project) -> dict:
-    path = project.repo_path / "package.json"
+def _package_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
@@ -57,35 +63,147 @@ def _package_json(project: Project) -> dict:
         return {}
 
 
-def _auto_command(project: Project, port: int) -> list[str] | None:
-    package = _package_json(project)
+_IGNORED_FRONTEND_DIRECTORIES = {
+    ".git",
+    ".next",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "node_modules",
+    "venv",
+}
+_PREFERRED_FRONTEND_DIRECTORIES = {"frontend", "web", "client", "app", "site"}
+_MAX_FRONTEND_DEPTH = 5
+
+
+def _frontend_directories(project: Project) -> list[Path]:
+    """실행 가능한 프론트엔드가 있을 법한 폴더를 얕은 순서로 찾는다.
+
+    LLM이 프로젝트 루트가 아닌 ``frontend/``나 ``web/`` 아래에 결과물을
+    만들 수 있으므로 루트만 검사하지 않는다. 의존성·빌드 폴더는 제외하고
+    탐색 깊이를 제한해 큰 저장소에서도 시작 요청이 느려지지 않게 한다.
+    """
+    root = project.repo_path.resolve()
+    candidates: list[Path] = []
+    for current, directories, files in os.walk(root):
+        path = Path(current)
+        depth = len(path.relative_to(root).parts)
+        directories[:] = [
+            name
+            for name in directories
+            if name not in _IGNORED_FRONTEND_DIRECTORIES
+            and not name.startswith(".")
+            and depth < _MAX_FRONTEND_DEPTH
+        ]
+        if "package.json" in files or "index.html" in files:
+            candidates.append(path)
+
+    def priority(path: Path) -> tuple[int, int, str]:
+        relative = path.relative_to(root)
+        parts = relative.parts
+        preferred = 0 if any(part.lower() in _PREFERRED_FRONTEND_DIRECTORIES for part in parts) else 1
+        return (len(parts), preferred, str(relative))
+
+    return sorted(candidates, key=priority)
+
+
+def _package_launch(directory: Path, port: int) -> PreviewLaunch | None:
+    package = _package_json(directory / "package.json")
     scripts = package.get("scripts") or {}
     dev = str(scripts.get("dev") or "")
     start = str(scripts.get("start") or "")
 
-    if (project.repo_path / "pnpm-lock.yaml").exists():
+    if (directory / "pnpm-lock.yaml").exists():
         runner = ["pnpm", "run"]
-    elif (project.repo_path / "yarn.lock").exists():
+    elif (directory / "yarn.lock").exists():
         runner = ["yarn"]
     else:
         runner = ["npm", "run"]
 
     if dev:
         if "next" in dev:
-            return [*runner, "dev", "--", "--hostname", "0.0.0.0", "--port", str(port)]
-        return [*runner, "dev", "--", "--host", "0.0.0.0", "--port", str(port)]
+            command = [*runner, "dev"]
+            extra: list[str] = []
+            if "--hostname" not in dev and "--host" not in dev:
+                extra += ["--hostname", "0.0.0.0"]
+            if "--port" not in dev and " -p " not in f" {dev} ":
+                extra += ["--port", str(port)]
+        else:
+            command = [*runner, "dev"]
+            extra = []
+            if "--host" not in dev:
+                extra += ["--host", "0.0.0.0"]
+            if "--port" not in dev:
+                extra += ["--port", str(port)]
+        if extra:
+            command += ["--", *extra]
+        return PreviewLaunch(command, directory)
     if start:
-        return [*runner, "start"]
+        return PreviewLaunch([*runner, "start"], directory)
     return None
 
 
-def _configured_command(project: Project, port: int) -> list[str] | None:
+def _dependency_install_command(launch: PreviewLaunch) -> list[str] | None:
+    """패키지 실행인데 로컬 의존성이 아직 없으면 설치 명령을 돌려준다.
+
+    새 프로젝트는 LLM이 package.json까지만 만든 직후 iPad가 프리뷰를
+    요청하는 경우가 많다. 이때 npm script는 발견되지만 ``vite`` 같은 로컬
+    실행 파일이 없어 코드 127로 끝난다. 프리뷰가 선택한 실제 frontend
+    디렉터리에서 한 번 설치하면 이후 요청은 기존 node_modules를 재사용한다.
+    """
+    if not launch.command or launch.command[0] not in {"npm", "pnpm", "yarn"}:
+        return None
+    if not (launch.cwd / "package.json").is_file():
+        return None
+    if (launch.cwd / "node_modules").is_dir():
+        return None
+
+    runner = launch.command[0]
+    if runner == "npm":
+        return ["npm", "install", "--no-audit", "--no-fund"]
+    if runner == "pnpm":
+        return ["pnpm", "install", "--no-frozen-lockfile"]
+    return ["yarn", "install"]
+
+
+def _auto_launch(project: Project, port: int) -> PreviewLaunch | None:
+    directories = _frontend_directories(project)
+
+    # 실행 스크립트가 있는 앱을 정적 HTML보다 우선한다.
+    for directory in directories:
+        if (directory / "package.json").is_file():
+            launch = _package_launch(directory, port)
+            if launch is not None:
+                return launch
+
+    # package.json 없는 LLM 생성 결과도 즉시 프리뷰한다.
+    for directory in directories:
+        if (directory / "index.html").is_file():
+            return PreviewLaunch(
+                [
+                    sys.executable,
+                    "-m",
+                    "http.server",
+                    str(port),
+                    "--bind",
+                    "0.0.0.0",
+                ],
+                directory,
+            )
+    return None
+
+
+def _configured_launch(project: Project, port: int) -> PreviewLaunch | None:
     if not project.preview_command:
         return None
-    return [
-        part.replace("{host}", "0.0.0.0").replace("{port}", str(port))
-        for part in project.preview_command
-    ]
+    return PreviewLaunch(
+        [
+            part.replace("{host}", "0.0.0.0").replace("{port}", str(port))
+            for part in project.preview_command
+        ],
+        project.repo_path,
+    )
 
 
 def _free_port() -> int:
@@ -132,7 +250,10 @@ class PreviewManager:
         self._lock = asyncio.Lock()
 
     def can_preview(self, project: Project) -> bool:
-        return bool(project.preview_command or _auto_command(project, project.preview_port or 4173))
+        return bool(
+            project.preview_command
+            or _auto_launch(project, project.preview_port or 4173)
+        )
 
     async def start(self, project: Project, *, public_host: str) -> PreviewSession:
         async with self._lock:
@@ -144,7 +265,8 @@ class PreviewManager:
 
             if not self.can_preview(project) and project.preview_port is None:
                 raise PreviewUnavailableError(
-                    "실행 가능한 프론트엔드가 없습니다. package.json의 dev/start 스크립트나 "
+                    "실행 가능한 프론트엔드를 찾지 못했습니다. 프로젝트 또는 하위 폴더에 "
+                    "index.html을 만들거나 package.json의 dev/start 스크립트, "
                     "previewCommand를 설정하세요."
                 )
 
@@ -154,10 +276,11 @@ class PreviewManager:
                 self._sessions[project.project_id] = session
                 return session
 
-            command = _configured_command(project, port) or _auto_command(project, port)
-            if command is None:
+            launch = _configured_launch(project, port) or _auto_launch(project, port)
+            if launch is None:
                 raise PreviewUnavailableError(
-                    "실행 가능한 프론트엔드가 없습니다. package.json의 dev/start 스크립트나 "
+                    "실행 가능한 프론트엔드를 찾지 못했습니다. 프로젝트 또는 하위 폴더에 "
+                    "index.html을 만들거나 package.json의 dev/start 스크립트, "
                     "previewCommand를 설정하세요."
                 )
 
@@ -171,10 +294,60 @@ class PreviewManager:
                 "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": vite_allowed_host(public_host),
             })
             log_file = tempfile.TemporaryFile(mode="w+b")
+
+            install_command = _dependency_install_command(launch)
+            if install_command is not None:
+                logger.info(
+                    "%s 프론트엔드 의존성 자동 설치: %s",
+                    project.project_id,
+                    launch.cwd,
+                )
+                try:
+                    installer = await asyncio.create_subprocess_exec(
+                        *install_command,
+                        cwd=launch.cwd,
+                        env=env,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=log_file,
+                        stderr=asyncio.subprocess.STDOUT,
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            installer.wait(), timeout=max(self._start_timeout, 300.0)
+                        )
+                    except asyncio.TimeoutError:
+                        installer.kill()
+                        await installer.wait()
+                        raise PreviewStartError(
+                            _with_log(
+                                "프론트엔드 의존성 설치가 제한 시간 안에 끝나지 않았습니다.",
+                                log_file,
+                            )
+                        )
+                    if installer.returncode != 0:
+                        raise PreviewStartError(
+                            _with_log(
+                                f"프론트엔드 의존성 설치에 실패했습니다(코드 {installer.returncode}).",
+                                log_file,
+                            )
+                        )
+                    # 설치 로그와 실제 dev server 로그를 구분하고, 실패 화면에는
+                    # 현재 실행에서 필요한 마지막 부분만 보여준다.
+                    log_file.seek(0)
+                    log_file.truncate(0)
+                except PreviewStartError:
+                    log_file.close()
+                    raise
+                except OSError as exc:
+                    log_file.close()
+                    raise PreviewStartError(
+                        f"프론트엔드 의존성 설치 명령을 실행하지 못했습니다: {exc}"
+                    ) from exc
+
             try:
                 process = await asyncio.create_subprocess_exec(
-                    *command,
-                    cwd=project.repo_path,
+                    *launch.command,
+                    cwd=launch.cwd,
                     env=env,
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_file,

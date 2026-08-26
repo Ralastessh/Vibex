@@ -4,6 +4,8 @@ import json
 import os
 import stat
 
+import pytest
+
 from src.agents.codex_cli import CodexCLIAdapter
 
 
@@ -231,20 +233,55 @@ async def test_codex_turn_receives_model_and_effort(tmp_path):
     assert turn["params"]["effort"] == "high"
 
 
-async def test_codex_approval_modes_change_real_app_server_policy(tmp_path):
+@pytest.mark.parametrize(
+    ("approval_mode", "expected"),
+    [
+        (
+            "default",
+            {
+                "approvalPolicy": "on-request",
+                "approvalsReviewer": "auto_review",
+                "sandbox": "workspace-write",
+                "sandboxType": "workspaceWrite",
+            },
+        ),
+        (
+            "autopilot",
+            {
+                "approvalPolicy": "never",
+                "approvalsReviewer": "auto_review",
+                "sandbox": "workspace-write",
+                "sandboxType": "workspaceWrite",
+            },
+        ),
+        (
+            "bypass",
+            {
+                "approvalPolicy": "never",
+                "approvalsReviewer": "user",
+                "sandbox": "danger-full-access",
+                "sandboxType": "dangerFullAccess",
+            },
+        ),
+    ],
+)
+async def test_codex_approval_modes_change_real_app_server_policy(
+    tmp_path, approval_mode, expected
+):
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     binary, messages_file = fake_codex(tmp_path)
 
     await CodexCLIAdapter(binary=binary).resume_and_run(
-        repo, None, "답변", approval_mode="bypass"
+        repo, None, "답변", approval_mode=approval_mode
     )
     messages = [json.loads(line) for line in messages_file.read_text().splitlines()]
     start = next(message for message in messages if message.get("method") == "thread/start")
     turn = next(message for message in messages if message.get("method") == "turn/start")
-    assert start["params"]["approvalPolicy"] == "never"
-    assert start["params"]["sandbox"] == "danger-full-access"
-    assert turn["params"]["sandboxPolicy"] == {"type": "dangerFullAccess"}
+    assert start["params"]["approvalPolicy"] == expected["approvalPolicy"]
+    assert start["params"]["approvalsReviewer"] == expected["approvalsReviewer"]
+    assert start["params"]["sandbox"] == expected["sandbox"]
+    assert turn["params"]["sandboxPolicy"]["type"] == expected["sandboxType"]
 
 
 async def test_codex_lists_every_shared_thread_source_and_exact_cwd(tmp_path):

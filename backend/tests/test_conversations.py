@@ -93,6 +93,31 @@ def test_conversation_task_listing_is_isolated(api):
     assert first["conversationId"] != second["conversationId"]
 
 
+def test_delete_conversation_removes_it_from_persisted_store(api):
+    created = api.post(
+        "/api/v1/projects/demo/conversations",
+        headers=AUTH,
+        json={"title": "삭제할 대화"},
+    ).json()
+    conversation_id = created["conversationId"]
+
+    response = api.delete(
+        f"/api/v1/projects/demo/conversations/{conversation_id}",
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["conversationId"] == conversation_id
+    assert api.get(
+        f"/api/v1/projects/demo/conversations/{conversation_id}",
+        headers=AUTH,
+    ).status_code == 404
+    listed = api.get(
+        "/api/v1/projects/demo/conversations", headers=AUTH
+    ).json()["conversations"]
+    assert all(item["conversationId"] != conversation_id for item in listed)
+
+
 def test_conversation_and_per_agent_sessions_survive_restart(tmp_path):
     path = tmp_path / "conversations.json"
     first = TaskStore(path=path)

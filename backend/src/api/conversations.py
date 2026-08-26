@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from src.auth.device import RequireDevice
 from src.projects.registry import UnknownProjectError
+from src.tasks.store import ProjectBusyError
 from src.tasks.models import Conversation, Task
 
 
@@ -99,5 +100,23 @@ def archive_conversation(
         return request.app.state.tasks.archive_conversation(
             project_id, conversation_id
         )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.") from None
+
+
+@router.delete("/{conversation_id}", response_model=Conversation)
+def delete_conversation(
+    project_id: str, conversation_id: str, request: Request
+) -> Conversation:
+    _project(request, project_id)
+    try:
+        return request.app.state.tasks.delete_conversation(
+            project_id, conversation_id
+        )
+    except ProjectBusyError:
+        raise HTTPException(
+            status_code=409,
+            detail="이 대화에서 작업이 진행 중이라 지금은 삭제할 수 없습니다.",
+        ) from None
     except LookupError:
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.") from None

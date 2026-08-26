@@ -1,4 +1,5 @@
 import PencilKit
+import PhotosUI
 import SwiftUI
 
 // MARK: - 새 프로젝트 드로우코딩 문서
@@ -57,6 +58,7 @@ final class BlueprintPageDraft: ObservableObject, Identifiable {
     @Published var purpose: String
     @Published var note = ""
     @Published var paper: BlueprintPaper
+    @Published var backgroundImage: UIImage?
 
     init(kind: BlueprintSectionKind, paper: BlueprintPaper? = nil) {
         id = UUID()
@@ -64,6 +66,7 @@ final class BlueprintPageDraft: ObservableObject, Identifiable {
         title = kind.title
         purpose = kind.purpose
         self.paper = paper ?? (kind == .workflow ? .grid : .dots)
+        backgroundImage = nil
         canvasView = PencilPassthroughCanvasView()
     }
 
@@ -74,8 +77,13 @@ final class BlueprintPageDraft: ObservableObject, Identifiable {
         purpose = source.purpose
         note = source.note
         paper = source.paper
+        backgroundImage = source.backgroundImage
         canvasView = PencilPassthroughCanvasView()
         canvasView.drawing = source.canvasView.drawing
+    }
+
+    func importImageData(_ data: Data) {
+        backgroundImage = UIImage(data: data)
     }
 }
 
@@ -88,6 +96,7 @@ private struct StoredBlueprintPage: Codable {
     let note: String
     let paper: String
     let drawing: Data
+    let backgroundImage: Data?
 }
 
 /// 한 프로젝트의 UI·워크플로·특이사항을 하나의 문서 묶음으로 보관한다.
@@ -97,8 +106,10 @@ private final class ProjectBlueprintWorkspace: ObservableObject {
     @Published private(set) var pages: [BlueprintPageDraft]
     private let storageKey: String
 
-    init(projectId: String) {
-        storageKey = "vibex.project-blueprint.\(projectId)"
+    init(projectId: String, conversationId: String) {
+        // 설계 문서는 프로젝트가 아닌 대화 단위로 분리한다. 새 대화 ID에는
+        // 저장 데이터가 없으므로 기본 세 페이지 모두 빈 캔버스로 시작한다.
+        storageKey = "vibex.project-blueprint.\(projectId).\(conversationId)"
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let stored = try? JSONDecoder().decode([StoredBlueprintPage].self, from: data) {
             pages = stored.compactMap(Self.restore)
@@ -123,7 +134,8 @@ private final class ProjectBlueprintWorkspace: ObservableObject {
                 purpose: $0.purpose,
                 note: $0.note,
                 paper: $0.paper.rawValue,
-                drawing: $0.canvasView.drawing.dataRepresentation()
+                drawing: $0.canvasView.drawing.dataRepresentation(),
+                backgroundImage: $0.backgroundImage?.jpegData(compressionQuality: 0.9)
             )
         }
         guard let data = try? JSONEncoder().encode(stored) else { return }
@@ -164,6 +176,9 @@ private final class ProjectBlueprintWorkspace: ObservableObject {
         if let drawing = try? PKDrawing(data: stored.drawing) {
             page.canvasView.drawing = drawing
         }
+        if let data = stored.backgroundImage {
+            page.backgroundImage = UIImage(data: data)
+        }
         return page
     }
 
@@ -189,39 +204,43 @@ struct ProjectWorkspaceView: View {
     @State private var sending = false
     @State private var createdTask: TaskCreated?
     @State private var errorText: String?
+    @State private var importPhotoItem: PhotosPickerItem?
 
     init(model: AppModel, project: ProjectView, conversation: ConversationView) {
         self.model = model
         self.project = project
         self.conversation = conversation
         _blueprint = StateObject(
-            wrappedValue: ProjectBlueprintWorkspace(projectId: project.projectId)
+            wrappedValue: ProjectBlueprintWorkspace(
+                projectId: project.projectId,
+                conversationId: conversation.conversationId
+            )
         )
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if selectedPage?.kind == .interface {
-                HStack(spacing: 10) {
-                    Image(systemName: previewEnabled ? "rectangle.on.rectangle" : "doc")
-                        .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(previewEnabled ? "PC 프리뷰 위에 그리기" : "빈 캔버스에서 설계")
-                            .font(.subheadline.weight(.semibold))
-                        Text(previewEnabled
-                             ? "실제로 실행 중인 프론트엔드에 주석을 남깁니다."
-                             : "이면지처럼 자유롭게 화면 아이디어를 그립니다.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("프리뷰", isOn: $previewEnabled)
-                        .labelsHidden()
+            HStack(spacing: 10) {
+                Image(systemName: previewEnabled ? "rectangle.on.rectangle" : "doc")
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(previewEnabled ? "PC 프리뷰 위에 그리기" : "빈 캔버스에서 설계")
+                        .font(.subheadline.weight(.semibold))
+                    Text(previewEnabled
+                         ? "실제로 실행 중인 프론트엔드에 주석을 남깁니다."
+                         : "이면지처럼 자유롭게 아이디어를 그립니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .background(Color(uiColor: .secondarySystemBackground))
+                Spacer()
+                // 페이지 종류와 무관하게 같은 프로젝트의 PC 프리뷰를 열 수 있다.
+                // 워크플로·기타사항을 작업하다가도 프리뷰에 바로 주석을 남긴다.
+                Toggle("프리뷰", isOn: $previewEnabled)
+                    .labelsHidden()
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .secondarySystemBackground))
 
             Divider()
 
@@ -229,7 +248,7 @@ struct ProjectWorkspaceView: View {
                 pages: blueprint.pages,
                 selectedPageId: $selectedPageId,
                 tool: $tool,
-                alternateMain: previewEnabled && selectedPage?.kind == .interface
+                alternateMain: previewEnabled
                     ? AnyView(ProjectLivePreviewView(
                         model: model,
                         project: project,
@@ -281,10 +300,8 @@ struct ProjectWorkspaceView: View {
                 }
 
                 if !previewEnabled {
-                    Button {
-                        blueprint.save()
-                    } label: {
-                        Label("저장", systemImage: "square.and.arrow.down")
+                    PhotosPicker(selection: $importPhotoItem, matching: .images) {
+                        Label("이미지 불러오기", systemImage: "photo.badge.plus")
                     }
 
                     Button {
@@ -316,8 +333,11 @@ struct ProjectWorkspaceView: View {
             if selectedPageId == nil { selectedPageId = blueprint.pages.first?.id }
         }
         .onChange(of: selectedPageId) { _ in
-            if selectedPage?.kind != .interface { previewEnabled = false }
             blueprint.save()
+        }
+        .onChange(of: importPhotoItem) { item in
+            guard let item else { return }
+            Task { await importPhoto(from: item) }
         }
         .onDisappear { blueprint.save() }
     }
@@ -335,6 +355,22 @@ struct ProjectWorkspaceView: View {
             ?? (effectiveAgentId == "codex-cli" ? "Codex" : "Claude Code")
     }
 
+    private func importPhoto(from item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  UIImage(data: data) != nil else {
+                throw BridgeError(message: "선택한 이미지를 읽을 수 없습니다.", statusCode: nil)
+            }
+            selectedPage?.importImageData(data)
+            blueprint.save()
+            importPhotoItem = nil
+            errorText = nil
+        } catch {
+            importPhotoItem = nil
+            errorText = error.localizedDescription
+        }
+    }
+
     private func sendBlueprint() async {
         guard !sending else { return }
         sending = true
@@ -347,6 +383,7 @@ struct ProjectWorkspaceView: View {
                     purpose: page.purpose,
                     note: page.note,
                     template: page.paper.rawValue,
+                    backgroundImage: page.backgroundImage,
                     drawing: page.canvasView.drawing,
                     canvasBounds: page.canvasView.bounds
                 )
@@ -602,6 +639,7 @@ struct NewProjectFlowView: View {
                     purpose: page.purpose,
                     note: page.note,
                     template: page.paper.rawValue,
+                    backgroundImage: page.backgroundImage,
                     drawing: page.canvasView.drawing,
                     canvasBounds: page.canvasView.bounds
                 )
@@ -666,56 +704,62 @@ private struct BlueprintDocumentEditor: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            HStack(spacing: 0) {
-                VStack(spacing: 8) {
-                    if alternateMain == nil {
-                        documentControls
-                        DrawingToolbar(tool: $tool)
-                    }
-                    Group {
-                        if let alternateMain {
-                            alternateMain
-                        } else {
-                            continuousPages
+        GeometryReader { editorGeometry in
+            // 페이지 목록은 세로 모드나 좌측 앱 사이드바의 표시 여부와 관계없이
+            // 사용자가 직접 열고 닫는다. 열리면 HStack이 본문 폭을 자동 축소한다.
+            let railIsVisible = pageRailVisible && alternateMain == nil
+            let railWidth = min(210, max(156, editorGeometry.size.width * 0.23))
+
+            ScrollViewReader { proxy in
+                HStack(spacing: 0) {
+                    VStack(spacing: 8) {
+                        if alternateMain == nil {
+                            documentControls
+                            DrawingToolbar(tool: $tool)
                         }
+                        Group {
+                            if let alternateMain {
+                                alternateMain
+                            } else {
+                                continuousPages
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
 
-                // 프리뷰는 실행 중인 웹 화면 자체를 다루므로 문서 페이지 목록과
-                // 역할이 다르다. 설계 문서를 보고 있을 때만 페이지 레일을 표시한다.
-                if pageRailVisible && alternateMain == nil {
-                    Divider()
+                    // 좌측 앱 사이드바가 열린 세로 모드에서는 중앙 편집면을
+                    // 가리지 않도록 페이지 레일을 자동으로 접는다. 폭이 다시 넓어지면
+                    // 사용자의 열림 상태를 기억해 레일을 다시 보여준다.
+                    if railIsVisible {
+                        Divider()
 
-                    BlueprintPageRail(
-                        pages: pages,
-                        selectedPageId: selectedPageId,
-                        onCollapse: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                pageRailVisible = false
-                            }
-                        },
-                        onSelect: { page in
-                            selectedPageId = page.id
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                proxy.scrollTo(page.id, anchor: .top)
-                            }
-                        },
-                        onAdd: { kind in
-                            let page = onAdd(kind)
-                            selectedPageId = page.id
-                            DispatchQueue.main.async {
-                                withAnimation { proxy.scrollTo(page.id, anchor: .top) }
-                            }
-                        },
-                        onDuplicate: onDuplicate,
-                        onDelete: onDelete
-                    )
-                    .frame(width: 220)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                        BlueprintPageRail(
+                            pages: pages,
+                            selectedPageId: selectedPageId,
+                            onSelect: { page in
+                                selectedPageId = page.id
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    proxy.scrollTo(page.id, anchor: .top)
+                                }
+                            },
+                            onAdd: { kind in
+                                let page = onAdd(kind)
+                                selectedPageId = page.id
+                                DispatchQueue.main.async {
+                                    withAnimation { proxy.scrollTo(page.id, anchor: .top) }
+                                }
+                            },
+                            onDuplicate: onDuplicate,
+                            onDelete: onDelete
+                        )
+                        .frame(width: railWidth)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
+                .frame(width: editorGeometry.size.width, height: editorGeometry.size.height)
+                .clipped()
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -737,7 +781,7 @@ private struct BlueprintDocumentEditor: View {
                 Image(systemName: "trash")
             }
             .accessibilityLabel("페이지 내용 지우기")
-            Spacer()
+            Spacer(minLength: 4)
             if let selectedPage {
                 Picker(
                     "종이",
@@ -751,12 +795,9 @@ private struct BlueprintDocumentEditor: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 210)
+                .frame(width: 180)
             }
-            if !pageRailVisible {
-                Divider().frame(height: 26)
-                expandPageRailButton
-            }
+            pageRailToggleButton
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -794,12 +835,35 @@ private struct BlueprintDocumentEditor: View {
                             height: displayedHeight,
                             alignment: .topLeading
                         )
+                        .background {
+                            GeometryReader { pageGeometry in
+                                Color.clear.preference(
+                                    key: BlueprintPagePositionPreferenceKey.self,
+                                    value: [
+                                        page.id: pageGeometry.frame(
+                                            in: .named("blueprint-page-scroll")
+                                        ).midY
+                                    ]
+                                )
+                            }
+                        }
                         .id(page.id)
                         .onTapGesture { selectedPageId = page.id }
                     }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
+            }
+            .coordinateSpace(name: "blueprint-page-scroll")
+            .onPreferenceChange(BlueprintPagePositionPreferenceKey.self) { positions in
+                // 화면 중앙을 가장 많이 차지하는 페이지를 현재 페이지로 본다.
+                // 우측 페이지 테두리와 종이 설정 Picker가 손가락 스크롤을 따라간다.
+                let viewportCenter = geometry.size.height / 2
+                guard let visible = positions.min(by: {
+                    abs($0.value - viewportCenter) < abs($1.value - viewportCenter)
+                })?.key,
+                      visible != selectedPageId else { return }
+                selectedPageId = visible
             }
             // 손가락을 끝까지 밀어도 문서 모서리 바깥의 빈 영역이 드러나지 않는다.
             .background(ScrollBounceConfigurator())
@@ -837,17 +901,29 @@ private struct BlueprintDocumentEditor: View {
         expandedPageWidth = max(expandedPageWidth, availableWidth)
     }
 
-    private var expandPageRailButton: some View {
+    private var pageRailToggleButton: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) {
-                pageRailVisible = true
+                pageRailVisible.toggle()
             }
         } label: {
             Image(systemName: "sidebar.right")
                 .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .accessibilityLabel("페이지 목록 펼치기")
+        .buttonStyle(.plain)
+        .accessibilityLabel(pageRailVisible ? "페이지 목록 접기" : "페이지 목록 펼치기")
+    }
+}
+
+private struct BlueprintPagePositionPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+
+    static func reduce(
+        value: inout [UUID: CGFloat],
+        nextValue: () -> [UUID: CGFloat]
+    ) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
 
@@ -871,6 +947,14 @@ private struct ScrollBounceConfigurator: UIViewRepresentable {
                 if let scrollView = current as? UIScrollView {
                     scrollView.bounces = false
                     scrollView.alwaysBounceHorizontal = false
+                    // 문서 이동은 손가락만 담당한다. Apple Pencil을 허용하면
+                    // 바깥 ScrollView의 pan이 PKCanvasView의 획을 취소한다.
+                    scrollView.panGestureRecognizer.allowedTouchTypes = [
+                        NSNumber(value: UITouch.TouchType.direct.rawValue)
+                    ]
+                    scrollView.pinchGestureRecognizer?.allowedTouchTypes = [
+                        NSNumber(value: UITouch.TouchType.direct.rawValue)
+                    ]
                     return
                 }
                 ancestor = current.superview
@@ -900,7 +984,16 @@ private struct BlueprintDocumentPage: View {
             Divider()
 
             ZStack {
-                BlueprintPaperView(paper: page.paper)
+                if let image = page.backgroundImage {
+                    Color(uiColor: .systemBackground)
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                }
+                BlueprintPaperView(
+                    paper: page.paper,
+                    fillsBackground: page.backgroundImage == nil
+                )
                 PencilCanvas(
                     canvasView: page.canvasView,
                     tool: tool,
@@ -919,7 +1012,6 @@ private struct BlueprintDocumentPage: View {
 private struct BlueprintPageRail: View {
     let pages: [BlueprintPageDraft]
     let selectedPageId: UUID?
-    let onCollapse: () -> Void
     let onSelect: (BlueprintPageDraft) -> Void
     let onAdd: (BlueprintSectionKind) -> Void
     let onDuplicate: (BlueprintPageDraft) -> Void
@@ -934,10 +1026,6 @@ private struct BlueprintPageRail: View {
             HStack {
                 Text("페이지").font(.headline)
                 Spacer()
-                Button(action: onCollapse) {
-                    Image(systemName: "sidebar.right")
-                }
-                .accessibilityLabel("페이지 목록 접기")
                 Menu {
                     ForEach(BlueprintSectionKind.allCases) { kind in
                         Button { onAdd(kind) } label: {
@@ -1012,10 +1100,16 @@ private struct BlueprintPageRail: View {
 
 private struct BlueprintPaperView: View {
     let paper: BlueprintPaper
+    var fillsBackground = true
 
     var body: some View {
         Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(uiColor: .systemBackground)))
+            if fillsBackground {
+                context.fill(
+                    Path(CGRect(origin: .zero, size: size)),
+                    with: .color(Color(uiColor: .systemBackground))
+                )
+            }
             let color = Color.secondary.opacity(0.16)
             switch paper {
             case .grid:

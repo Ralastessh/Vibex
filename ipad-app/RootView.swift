@@ -64,9 +64,10 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showNewProject = false
     @State private var libraryFilter: ProjectLibraryFilter? = .all
+    @State private var splitVisibility: NavigationSplitViewVisibility = .automatic
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $splitVisibility) {
             List(selection: $libraryFilter) {
                 Section {
                     Label("모든 프로젝트", systemImage: "square.grid.2x2")
@@ -78,10 +79,15 @@ struct RootView: View {
                 }
             }
             .navigationTitle("Vibex")
+            .navigationBarTitleDisplayMode(.large)
             .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 240, ideal: 264, max: 300)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showSettings = true } label: { Image(systemName: "gear") }
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gear")
+                    }
+                    .accessibilityLabel("연결 설정")
                 }
             }
         } detail: {
@@ -97,6 +103,7 @@ struct RootView: View {
                 }
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) {
             SettingsView()
         }
@@ -201,7 +208,8 @@ struct SettingsView: View {
                                     Spacer()
                                     Text("프로젝트 \(bridge.projects)개")
                                         .font(.caption).foregroundStyle(.secondary)
-                                    if selectedBridgeURL == bridge.url.absoluteString {
+                                    if normalizedBridgeURL(selectedBridgeURL).map(bridgeIdentity)
+                                        == bridgeIdentity(bridge.url) {
                                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                                     }
                                 }
@@ -225,7 +233,7 @@ struct SettingsView: View {
                 } header: {
                     Text("PC 직접 추가")
                 } footer: {
-                    Text("Tailscale 앱의 기기 목록에 표시되는 이름을 입력하면 됩니다. 포트를 생략하면 8788을 사용합니다.")
+                    Text("Tailscale 앱의 기기 목록에 표시되는 이름을 입력하면 됩니다. 포트를 생략하면 8787을 사용합니다.")
                 }
                 #endif
 
@@ -318,7 +326,8 @@ struct SettingsView: View {
                 if let result { online.append(result) }
             }
         }
-        availableBridges = online.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        availableBridges = deduplicatedBridges(online)
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         for bridge in availableBridges { remember(bridge.url) }
     }
 
@@ -328,7 +337,7 @@ struct SettingsView: View {
         }
         return AvailableBridge(
             url: url,
-            name: url.host?.split(separator: ".").first.map(String.init) ?? url.absoluteString,
+            name: bridgeDisplayName(url),
             projects: health.projects
         )
     }
@@ -348,7 +357,7 @@ struct SettingsView: View {
             return nil
         }
         if components.scheme == nil { components.scheme = "http" }
-        if components.port == nil { components.port = 8788 }
+        if components.port == nil || components.port == 8788 { components.port = 8787 }
         components.path = ""
         components.query = nil
         components.fragment = nil
@@ -362,16 +371,53 @@ struct SettingsView: View {
     }
 
     private func remember(_ url: URL) {
-        var urls = knownBridgeURLs
-        if !urls.contains(url.absoluteString) { urls.append(url.absoluteString) }
-        guard let data = try? JSONEncoder().encode(urls),
+        var urls = knownBridgeURLs.compactMap(normalizedBridgeURL)
+        let identity = bridgeIdentity(url)
+        if let index = urls.firstIndex(where: { bridgeIdentity($0) == identity }) {
+            urls[index] = url
+        } else {
+            urls.append(url)
+        }
+        guard let data = try? JSONEncoder().encode(urls.map(\.absoluteString)),
               let json = String(data: data, encoding: .utf8) else { return }
         knownBridgeURLsJSON = json
     }
 
     private func unique(_ urls: [URL]) -> [URL] {
         var seen = Set<String>()
-        return urls.filter { seen.insert($0.absoluteString).inserted }
+        return urls.filter { seen.insert(bridgeIdentity($0)).inserted }
+    }
+
+    private func deduplicatedBridges(_ bridges: [AvailableBridge]) -> [AvailableBridge] {
+        var result: [String: AvailableBridge] = [:]
+        let selectedURL = normalizedBridgeURL(selectedBridgeURL)
+
+        for bridge in bridges {
+            let identity = bridgeIdentity(bridge.url)
+            if let current = result[identity] {
+                let isExactSelection = bridge.url.absoluteString == selectedURL?.absoluteString
+                if isExactSelection || bridge.projects > current.projects {
+                    result[identity] = bridge
+                }
+            } else {
+                result[identity] = bridge
+            }
+        }
+        return Array(result.values)
+    }
+
+    private func bridgeIdentity(_ url: URL) -> String {
+        guard let host = url.host?.lowercased() else {
+            return url.absoluteString.lowercased()
+        }
+        let isIPAddress = host.allSatisfy { $0.isNumber || $0 == "." } || host.contains(":")
+        return isIPAddress ? host : String(host.split(separator: ".").first ?? Substring(host))
+    }
+
+    private func bridgeDisplayName(_ url: URL) -> String {
+        guard let host = url.host else { return url.absoluteString }
+        let isIPAddress = host.allSatisfy { $0.isNumber || $0 == "." } || host.contains(":")
+        return isIPAddress ? host : String(host.split(separator: ".").first ?? Substring(host))
     }
 }
 
@@ -495,6 +541,8 @@ struct ConversationListView: View {
     @State private var conversations: [ConversationView] = []
     @State private var loading = false
     @State private var errorText: String?
+    @State private var createdConversation: ConversationView?
+    @State private var openCreatedConversation = false
 
     var body: some View {
         List {
@@ -515,6 +563,13 @@ struct ConversationListView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        Task { await delete(conversation) }
+                    } label: {
+                        Label("삭제", systemImage: "trash")
+                    }
+                }
             }
         }
         .overlay {
@@ -532,13 +587,24 @@ struct ConversationListView: View {
         }
         .task { await refresh() }
         .refreshable { await refresh() }
+        .navigationDestination(isPresented: $openCreatedConversation) {
+            if let conversation = createdConversation {
+                ProjectWorkspaceView(
+                    model: model,
+                    project: project,
+                    conversation: conversation
+                )
+            }
+        }
     }
 
     private func refresh() async {
         loading = true
         defer { loading = false }
         do {
-            conversations = try await model.client.conversations(projectId: project.projectId)
+            let loaded = try await model.client.conversations(projectId: project.projectId)
+            migrateLegacyBlueprintIfNeeded(to: loaded.first)
+            conversations = loaded
             errorText = nil
         } catch {
             errorText = error.localizedDescription
@@ -550,11 +616,49 @@ struct ConversationListView: View {
         defer { loading = false }
         do {
             let created = try await model.client.createConversation(projectId: project.projectId)
+            // 구버전의 프로젝트 공용 캔버스를 새 대화로 잘못 복사하지 않는다.
+            UserDefaults.standard.set(true, forKey: blueprintMigrationKey)
             conversations.insert(created, at: 0)
+            createdConversation = created
+            errorText = nil
+            openCreatedConversation = true
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func delete(_ conversation: ConversationView) async {
+        do {
+            _ = try await model.client.deleteConversation(
+                projectId: project.projectId,
+                conversationId: conversation.conversationId
+            )
+            conversations.removeAll { $0.conversationId == conversation.conversationId }
+            UserDefaults.standard.removeObject(
+                forKey: "vibex.project-blueprint.\(project.projectId).\(conversation.conversationId)"
+            )
             errorText = nil
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    private var blueprintMigrationKey: String {
+        "vibex.project-blueprint-migrated.\(project.projectId)"
+    }
+
+    private func migrateLegacyBlueprintIfNeeded(to conversation: ConversationView?) {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: blueprintMigrationKey), let conversation else { return }
+
+        let legacyKey = "vibex.project-blueprint.\(project.projectId)"
+        let destinationKey = "vibex.project-blueprint.\(project.projectId).\(conversation.conversationId)"
+        if defaults.data(forKey: destinationKey) == nil,
+           let legacyData = defaults.data(forKey: legacyKey) {
+            // 기존 공용 드로잉은 가장 최근 대화 한 곳에만 보존한다.
+            defaults.set(legacyData, forKey: destinationKey)
+        }
+        defaults.set(true, forKey: blueprintMigrationKey)
     }
 }
 

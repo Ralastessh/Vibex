@@ -319,6 +319,53 @@ class TaskStore:
             self._save_locked()
             return _copy_conversation(conversation)
 
+    def delete_conversation(
+        self, project_id: str, conversation_id: str
+    ) -> Conversation:
+        """대화와 그 대화에 속한 VIBEX 작업 기록을 영구 삭제한다.
+
+        실행 중인 작업을 지우면 프로젝트 lock과 에이전트 실행의 귀속이
+        사라지므로 해당 대화가 작업 중일 때는 삭제를 거부한다.
+        """
+
+        with self._lock:
+            conversation = self._conversations.get(conversation_id)
+            if conversation is None or conversation.project_id != project_id:
+                raise LookupError(conversation_id)
+
+            task_ids = [
+                task.task_id
+                for task in self._tasks.values()
+                if task.project_id == project_id
+                and task.conversation_id == conversation_id
+            ]
+            active_task = next(
+                (
+                    self._tasks[task_id]
+                    for task_id in task_ids
+                    if self._tasks[task_id].status in ACTIVE_STATUSES
+                ),
+                None,
+            )
+            if active_task is not None:
+                raise ProjectBusyError(project_id, active_task.task_id)
+
+            deleted = _copy_conversation(conversation)
+            for task_id in task_ids:
+                task = self._tasks.pop(task_id)
+                self._review_patches.pop(task_id, None)
+                self._review_trees.pop(task_id, None)
+                if task.client_task_id is not None:
+                    self._by_client.pop(
+                        (task.project_id, task.client_task_id), None
+                    )
+                if self._active.get(project_id) == task_id:
+                    self._active.pop(project_id, None)
+
+            del self._conversations[conversation_id]
+            self._save_locked()
+            return deleted
+
     def agent_session(self, conversation_id: str, agent_id: str) -> str | None:
         with self._lock:
             conversation = self._conversations.get(conversation_id)

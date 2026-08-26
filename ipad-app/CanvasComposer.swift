@@ -30,6 +30,7 @@ enum CanvasComposer {
         let purpose: String
         let note: String
         let template: String
+        let backgroundImage: UIImage?
         let drawing: PKDrawing
         let canvasBounds: CGRect
     }
@@ -199,6 +200,13 @@ enum CanvasComposer {
         UIColor.secondarySystemBackground.setFill()
         UIBezierPath(roundedRect: canvas, cornerRadius: 12).fill()
 
+        if let image = page.backgroundImage {
+            context.saveGState()
+            UIBezierPath(roundedRect: canvas, cornerRadius: 12).addClip()
+            drawAspectFit(image, in: canvas)
+            context.restoreGState()
+        }
+
         context.saveGState()
         context.setStrokeColor(UIColor.separator.withAlphaComponent(0.22).cgColor)
         context.setLineWidth(1)
@@ -231,6 +239,18 @@ enum CanvasComposer {
             return
         }
         let scale = max(rect.width / imageSize.width, rect.height / imageSize.height)
+        let drawn = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        let origin = CGPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2)
+        image.draw(in: CGRect(origin: origin, size: drawn))
+    }
+
+    private static func drawAspectFit(_ image: UIImage, in rect: CGRect) {
+        let imageSize = image.size
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            image.draw(in: rect)
+            return
+        }
+        let scale = min(rect.width / imageSize.width, rect.height / imageSize.height)
         let drawn = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         let origin = CGPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2)
         image.draw(in: CGRect(origin: origin, size: drawn))

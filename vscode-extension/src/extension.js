@@ -357,7 +357,11 @@ class VibexViewProvider {
     this.output.appendLine(`[backend] 자동 시작: ${backend}`);
     const process = childProcess.spawn(
       python,
-      ["-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", "8787"],
+      [
+        "-m", "uvicorn", "src.main:app",
+        "--host", "127.0.0.1", "--port", "8787",
+        "--no-proxy-headers",
+      ],
       {
         cwd: backend,
         env: {
@@ -411,8 +415,9 @@ class VibexViewProvider {
   }
 
   async configureTailscale() {
-    const configuration = vscode.workspace.getConfiguration("vibex");
-    const servePort = configuration.get("tailscaleServePort", 8788);
+    // Bridge와 iPad가 같은 단일 포트를 사용한다. 과거 사용자 설정에 8788이
+    // 남아 있어도 원격 주소가 다시 8788로 되돌아가지 않게 한다.
+    const servePort = 8787;
     let url = "";
     try {
       const binary = this.tailscaleBinary();
@@ -1480,6 +1485,14 @@ function activate(context) {
       if (event.affectsConfiguration("vibex")) provider.sendConfiguration();
     }),
   );
+
+  // iPad가 먼저 접속해도 받을 서버가 있도록 VS Code 시작 직후 Bridge와
+  // Tailscale Serve를 준비한다. 패널을 한 번 열어야만 시작되던 제약을 없앤다.
+  void provider.ensureBackend()
+    .then(() => provider.configureTailscale())
+    .catch((error) => {
+      provider.output.appendLine(`[startup] ${error.message || String(error)}`);
+    });
 }
 
 function deactivate() {}

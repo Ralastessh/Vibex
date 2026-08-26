@@ -168,7 +168,7 @@ VS Code의 VIBEX 패널을 열면 Bridge가 `127.0.0.1:8787`에서 자동 실행
 
 ```bash
 cd backend
-.venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8787
+.venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8787 --no-proxy-headers
 ```
 
 Mac과 물리 iPad의 Tailscale 앱에 같은 tailnet으로 로그인합니다. VIBEX 패널은

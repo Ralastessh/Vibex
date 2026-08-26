@@ -3,6 +3,106 @@ import Foundation
 import SwiftUI
 import WebKit
 
+/// 실제 프론트엔드와 투명 PencilKit 캔버스를 한 UIKit 계층에 겹친다.
+/// 위 캔버스는 Apple Pencil만 hit-test하고 손가락은 아래 WebView로 통과시킨다.
+private struct InteractiveLivePreviewSurface: UIViewRepresentable {
+    let webView: WKWebView
+    let canvasView: PencilPassthroughCanvasView
+    let tool: DrawTool
+    let url: URL
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView(frame: .zero)
+        container.backgroundColor = .clear
+        container.isMultipleTouchEnabled = true
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.isUserInteractionEnabled = true
+        webView.isMultipleTouchEnabled = true
+        webView.scrollView.isUserInteractionEnabled = true
+        webView.scrollView.isMultipleTouchEnabled = true
+        webView.scrollView.minimumZoomScale = 0.5
+        webView.scrollView.maximumZoomScale = 4.0
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = true
+        webView.scrollView.delaysContentTouches = false
+        webView.scrollView.keyboardDismissMode = .interactive
+        webView.configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        canvasView.backgroundColor = .clear
+        canvasView.isOpaque = false
+        canvasView.isMultipleTouchEnabled = true
+        canvasView.passesFingerTouchesThrough = true
+        canvasView.drawingPolicy = .pencilOnly
+        canvasView.delegate = context.coordinator.pencilCoordinator
+        canvasView.tool = tool.pkTool
+        canvasView.configurePencilInputRouting(allowFingerDrawing: false)
+        canvasView.forwardFingerNavigation(to: webView.scrollView)
+
+        container.addSubview(webView)
+        container.addSubview(canvasView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: container.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            canvasView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            canvasView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            canvasView.topAnchor.constraint(equalTo: container.topAnchor),
+            canvasView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        restrictWebGesturesToFinger(in: webView)
+        context.coordinator.loadingObservation = webView.observe(
+            \.isLoading,
+            options: [.initial, .new]
+        ) { [weak webView] _, _ in
+            DispatchQueue.main.async {
+                guard let webView else { return }
+                restrictWebGesturesToFinger(in: webView)
+            }
+        }
+
+        if webView.url != url {
+            webView.load(URLRequest(url: url))
+        }
+        DispatchQueue.main.async { canvasView.becomeFirstResponder() }
+        return container
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.pencilCoordinator.currentKind = tool.kind
+        canvasView.tool = tool.pkTool
+        canvasView.passesFingerTouchesThrough = true
+        canvasView.configurePencilInputRouting(allowFingerDrawing: false)
+        restrictWebGesturesToFinger(in: webView)
+        if webView.url != url && !webView.isLoading {
+            webView.load(URLRequest(url: url))
+        }
+        if !canvasView.isFirstResponder {
+            DispatchQueue.main.async { canvasView.becomeFirstResponder() }
+        }
+    }
+
+    final class Coordinator {
+        let pencilCoordinator = PencilCanvas.Coordinator()
+        var loadingObservation: NSKeyValueObservation?
+    }
+}
+
+private func restrictWebGesturesToFinger(in view: UIView) {
+    let fingerOnly = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+    view.gestureRecognizers?.forEach {
+        $0.allowedTouchTypes = fingerOnly
+        $0.requiresExclusiveTouchType = false
+    }
+    view.subviews.forEach { restrictWebGesturesToFinger(in: $0) }
+}
+
 /// PC에서 실행한 프론트엔드를 그대로 조작하고, 같은 화면 좌표계에 주석을 그린다.
 struct LivePreviewEditorView: View {
     @ObservedObject var model: AppModel
@@ -29,16 +129,11 @@ struct LivePreviewEditorView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                LiveWebView(webView: webView, url: previewURL)
-                    // 드로잉 모드에서도 손가락은 아래 WebView를 스크롤·탭한다.
-                    // Apple Pencil만 위 PencilPassthroughCanvasView가 가져간다.
-                    .allowsHitTesting(questions.isEmpty)
-
-                PencilCanvas(
+                InteractiveLivePreviewSurface(
+                    webView: webView,
                     canvasView: canvasView,
                     tool: tool,
-                    allowFingerDrawing: false,
-                    isActive: true
+                    url: previewURL
                 )
                 .allowsHitTesting(questions.isEmpty)
 
@@ -441,23 +536,6 @@ struct LivePreviewEditorView: View {
         case .failed: return "실패"
         case .cancelled: return "취소"
         }
-    }
-}
-
-
-private struct LiveWebView: UIViewRepresentable {
-    let webView: WKWebView
-    let url: URL
-
-    func makeUIView(context: Context) -> WKWebView {
-        webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.keyboardDismissMode = .interactive
-        webView.load(URLRequest(url: url))
-        return webView
-    }
-
-    func updateUIView(_ view: WKWebView, context: Context) {
-        if view.url == nil { view.load(URLRequest(url: url)) }
     }
 }
 
