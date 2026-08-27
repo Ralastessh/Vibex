@@ -737,12 +737,44 @@ function metaLine(task) {
   return parts.join(" · ");
 }
 
-function requestRow(text) {
+function attachmentSource(attachment) {
+  return String(attachment?.dataUrl || "");
+}
+
+function requestRow(task) {
   const row = el("div", "interactive-item-container interactive-request");
   const value = el("div", "value");
-  value.append(renderMarkdown(text));
+  const prompt = String(task.agentPrompt || task.userMessage || "").trim();
+  if (prompt) value.append(renderMarkdown(prompt));
+  const images = (task.attachments || []).filter((attachment) => attachmentSource(attachment));
+  if (images.length) {
+    const gallery = el("div", "vibex-request-images");
+    for (const attachment of images) {
+      const link = el("button", "vibex-request-image");
+      link.type = "button";
+      link.title = attachment.name || "첨부 이미지";
+      const image = document.createElement("img");
+      image.src = attachmentSource(attachment);
+      image.alt = attachment.name || "첨부 이미지";
+      link.append(image);
+      link.addEventListener("click", () => window.open(image.src, "_blank"));
+      gallery.append(link);
+    }
+    value.append(gallery);
+  }
   row.append(value);
   return row;
+}
+
+function hiddenWarning(text) {
+  const value = String(text || "");
+  return /실행 전 미커밋 변경사항이 \d+건 있었습니다/.test(value)
+    || /기존 미커밋 (?:파일과 )?변경사항은 그대로 보존했습니다/.test(value);
+}
+
+function hiddenSkippedTest(test) {
+  return String(test?.status || "") === "skipped"
+    && /사용자가 테스트(?: 실행)?을 허용하지 않아/.test(String(test?.summary || ""));
 }
 
 function responseRow(task, { isLast }) {
@@ -822,12 +854,14 @@ function responseRow(task, { isLast }) {
   }
 
   for (const warning of task.warnings || []) {
+    if (hiddenWarning(warning)) continue;
     const widget = el("div", "chat-notification-widget");
     widget.append(codicon("warning"), el("span", undefined, String(warning)));
     value.append(widget);
   }
 
   for (const test of task.testResults || []) {
+    if (hiddenSkippedTest(test)) continue;
     const label = el("div", "chat-used-context-label");
     label.append(codicon(test.status === "passed" ? "check" : test.status === "failed" ? "error" : "circle-slash"));
     label.append(el("code", undefined, ` ${test.command}${test.summary ? ` — ${test.summary}` : ""}`));
@@ -895,7 +929,7 @@ function renderTranscript() {
   }
 
   state.tasks.forEach((task, index) => {
-    if (task.userMessage) list.append(requestRow(task.userMessage));
+    if (task.userMessage || task.agentPrompt || task.attachments?.length) list.append(requestRow(task));
     list.append(responseRow(task, { isLast: index === state.tasks.length - 1 }));
   });
 

@@ -1,6 +1,0 @@
-.vscode/**
-tests/**
-node_modules/**
-package-lock.json
-*.vsix
-preview.html

@@ -172,6 +172,16 @@ var require_bridge = __commonJS({
       async getTask(taskId) {
         return this.request(`/tasks/${encodeURIComponent(taskId)}`);
       }
+      async attachmentData(attachment) {
+        const relative = String(attachment?.url || "");
+        if (!relative) return null;
+        const endpoint = new URL(relative, `${LOCAL_BRIDGE_URL}/`);
+        const response = await fetch(endpoint, { signal: AbortSignal.timeout(2e4) });
+        if (!response.ok) return null;
+        const contentType = response.headers.get("content-type") || attachment?.contentType || "image/png";
+        const bytes = Buffer.from(await response.arrayBuffer());
+        return `data:${contentType};base64,${bytes.toString("base64")}`;
+      }
       async cancelTask(taskId) {
         return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel`, {
           method: "POST",
@@ -2138,6 +2148,7 @@ var require_panel = __commonJS({
           if (selected) {
             const detail = await this.bridge.conversationDetail(projectId, selected.conversationId);
             tasks = Array.isArray(detail.tasks) ? detail.tasks : [];
+            tasks = await Promise.all(tasks.map((task) => this._hydrateTask(task)));
           }
           if (generation !== this.refreshGeneration) return;
           this.tasks = tasks;
@@ -2173,6 +2184,15 @@ var require_panel = __commonJS({
           ...partial
         });
       }
+      async _hydrateTask(task) {
+        const attachments = Array.isArray(task?.attachments) ? task.attachments : [];
+        if (!attachments.length) return task;
+        const hydrated = await Promise.all(attachments.map(async (attachment) => ({
+          ...attachment,
+          dataUrl: attachment.dataUrl || await this.bridge.attachmentData(attachment).catch(() => null)
+        })));
+        return { ...task, attachments: hydrated };
+      }
       _onTaskEvent(event) {
         if (!this.view) return;
         if (event.taskId && this._following.has(event.taskId)) return;
@@ -2185,7 +2205,7 @@ var require_panel = __commonJS({
         const poll = async () => {
           try {
             for (; ; ) {
-              const task = await this.bridge.getTask(taskId);
+              const task = await this._hydrateTask(await this.bridge.getTask(taskId));
               const index = this.tasks.findIndex((candidate) => candidate.taskId === task.taskId);
               if (index >= 0) this.tasks[index] = task;
               else this.tasks.push(task);

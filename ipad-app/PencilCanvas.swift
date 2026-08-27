@@ -57,71 +57,330 @@ struct DrawTool: Equatable {
     }
 }
 
-/// Apple Pencil은 부모 캔버스의 drawing recognizer가 받고, 손가락은 자식
-/// WebView 또는 바깥 문서 ScrollView가 받는다. 터치 종류를 hit-test에서
-/// 추측하지 않고 UIKit의 뷰 계층과 allowedTouchTypes로 입력을 분리한다.
+/// WebView와 같은 뷰 계층의 공통 조상에서 Apple Pencil만 관찰한다.
+/// 화면의 hit-test 대상은 계속 WebView이므로 손가락 탭·스크롤·핀치는 원래
+/// 경로를 유지하고, 이 recognizer는 Pencil 좌표만 PKDrawing으로 기록한다.
+private final class PencilStrokeGestureRecognizer: UIGestureRecognizer,
+    UIGestureRecognizerDelegate
+{
+    weak var canvasView: PencilPassthroughCanvasView?
+    weak var webView: WKWebView?
+    weak var pencilCoordinator: PencilCanvas.Coordinator?
+    var tool = DrawTool()
+
+    private var originalDrawing = PKDrawing()
+    private var activePoints: [PKStrokePoint] = []
+    private var startedAt: TimeInterval = 0
+    private var changedDrawing = false
+    private(set) var pencilIsActive = false
+    private(set) var fingerIsActive = false
+    private var lockedContentOffset: CGPoint = .zero
+    private var lockedZoomScale: CGFloat = 1
+
+    init(
+        canvasView: PencilPassthroughCanvasView,
+        webView: WKWebView,
+        coordinator: PencilCanvas.Coordinator
+    ) {
+        self.canvasView = canvasView
+        self.webView = webView
+        self.pencilCoordinator = coordinator
+        super.init(target: nil, action: nil)
+        delegate = self
+        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        requiresExclusiveTouchType = false
+        cancelsTouchesInView = true
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first(where: { $0.type == .pencil }),
+              let canvasView else {
+            state = .failed
+            return
+        }
+
+        originalDrawing = canvasView.drawing
+        activePoints.removeAll(keepingCapacity: true)
+        startedAt = touch.timestamp
+        changedDrawing = false
+        pencilIsActive = true
+        lockWebNavigationAtCurrentPosition()
+        state = .began
+        consume(touch: touch, event: event)
+
+        #if DEBUG
+        print("[VibexInput] pencil began; webPan=\(webView?.scrollView.panGestureRecognizer.state.rawValue ?? -1)")
+        #endif
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first(where: { $0.type == .pencil }) else { return }
+        consume(touch: touch, event: event)
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let touch = touches.first(where: { $0.type == .pencil }) {
+            consume(touch: touch, event: event)
+        }
+        commitDrawing()
+        pencilIsActive = false
+        state = .ended
+
+        #if DEBUG
+        print("[VibexInput] pencil ended; points=\(activePoints.count)")
+        #endif
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let canvasView {
+            canvasView.drawing = originalDrawing
+            canvasView.refreshDrawingMirror()
+        }
+        pencilIsActive = false
+        state = .cancelled
+    }
+
+    override func reset() {
+        activePoints.removeAll(keepingCapacity: false)
+        originalDrawing = PKDrawing()
+        changedDrawing = false
+        pencilIsActive = false
+        super.reset()
+    }
+
+    /// 손가락의 실제 접촉 여부는 WebView의 pan 상태만으로 판별할 수 없다.
+    /// Pencil도 같은 pan recognizer를 잠깐 깨울 수 있기 때문에 별도 direct-touch
+    /// monitor가 알려 준 값만 신뢰한다.
+    func setFingerActive(_ active: Bool) {
+        guard fingerIsActive != active else { return }
+        fingerIsActive = active
+        if pencilIsActive {
+            // 손가락을 떼는 순간의 위치를 새 기준으로 잡는다. 따라서 Pencil을
+            // 계속 대고 있어도 손가락으로 이동한 결과는 보존된다.
+            lockWebNavigationAtCurrentPosition()
+        }
+    }
+
+    /// Pencil만 닿아 있을 때 WebView가 Pencil 이동을 scroll로 오인하면 원래
+    /// offset/zoom으로 즉시 되돌린다. 손가락이 함께 닿아 있으면 아무것도
+    /// 잠그지 않으므로 동시 스크롤과 pinch는 그대로 가능하다.
+    @discardableResult
+    func restoreWebNavigationIfPencilOnly() -> Bool {
+        guard pencilIsActive, !fingerIsActive, let scrollView = webView?.scrollView else {
+            return false
+        }
+
+        var restored = false
+        if abs(scrollView.zoomScale - lockedZoomScale) > 0.0001 {
+            scrollView.setZoomScale(lockedZoomScale, animated: false)
+            restored = true
+        }
+        if abs(scrollView.contentOffset.x - lockedContentOffset.x) > 0.1
+            || abs(scrollView.contentOffset.y - lockedContentOffset.y) > 0.1
+        {
+            scrollView.setContentOffset(lockedContentOffset, animated: false)
+            restored = true
+        }
+        return restored
+    }
+
+    private func lockWebNavigationAtCurrentPosition() {
+        guard let scrollView = webView?.scrollView else { return }
+        lockedContentOffset = scrollView.contentOffset
+        lockedZoomScale = scrollView.zoomScale
+    }
+
+    // 손가락 WebView recognizer와 입력 종류가 다르므로 동시에 진행시킨다.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+
+    // Pencil 캡처가 이미 진행 중인 손가락 스크롤·핀치를 중단시키지 않게 한다.
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    private func consume(touch: UITouch, event: UIEvent) {
+        let samples = event.coalescedTouches(for: touch) ?? [touch]
+        switch tool.kind {
+        case .pen, .marker:
+            appendInkSamples(samples)
+        case .eraser:
+            samples.forEach { erase(at: documentPoint(for: $0)) }
+        case .lasso:
+            // 라이브 프리뷰에서는 lasso가 WebView를 조작하지 않도록 Pencil
+            // 입력을 소비한다. 선택 편집은 일반 캔버스의 SelectionOverlay가 담당한다.
+            break
+        }
+        restoreWebNavigationIfPencilOnly()
+    }
+
+    private func appendInkSamples(_ samples: [UITouch]) {
+        guard let canvasView else { return }
+        let width = tool.kind == .marker ? max(tool.width * 3, 16) : tool.width
+
+        for sample in samples {
+            let timeOffset = max(0, sample.timestamp - startedAt)
+            if let last = activePoints.last,
+               timeOffset <= last.timeOffset,
+               hypot(
+                   last.location.x - documentPoint(for: sample).x,
+                   last.location.y - documentPoint(for: sample).y
+               ) < 0.05 {
+                continue
+            }
+
+            let maximumForce = max(sample.maximumPossibleForce, 0.001)
+            let normalizedForce = max(0.05, min(1, sample.force / maximumForce))
+            activePoints.append(
+                PKStrokePoint(
+                    location: documentPoint(for: sample),
+                    timeOffset: timeOffset,
+                    size: CGSize(width: width, height: width),
+                    opacity: 1,
+                    force: normalizedForce,
+                    azimuth: sample.azimuthAngle(in: canvasView),
+                    altitude: sample.altitudeAngle
+                )
+            )
+        }
+
+        guard !activePoints.isEmpty else { return }
+        let inkType: PKInk.InkType = tool.kind == .marker ? .marker : .pen
+        let path = PKStrokePath(controlPoints: activePoints, creationDate: Date())
+        let stroke = PKStroke(
+            ink: PKInk(inkType, color: UIColor(hex: tool.colorHex)),
+            path: path
+        )
+        canvasView.drawing = PKDrawing(strokes: originalDrawing.strokes + [stroke])
+        canvasView.refreshDrawingMirror()
+        changedDrawing = true
+    }
+
+    private func erase(at point: CGPoint) {
+        guard let canvasView else { return }
+        let radius = max(4, tool.eraserWidth / 2)
+        let kept = canvasView.drawing.strokes.filter { stroke in
+            !stroke.renderBounds.insetBy(dx: -radius, dy: -radius).contains(point)
+        }
+        guard kept.count != canvasView.drawing.strokes.count else { return }
+        canvasView.drawing = PKDrawing(strokes: kept)
+        canvasView.refreshDrawingMirror()
+        changedDrawing = true
+    }
+
+    private func commitDrawing() {
+        guard changedDrawing, let canvasView else { return }
+        let changed = canvasView.drawing
+        let baseline = originalDrawing.strokes.count
+        canvasView.drawing = originalDrawing
+        canvasView.setDrawingUndoably(changed, actionName: tool.kind == .eraser ? "지우기" : "그리기")
+        canvasView.refreshDrawingMirror()
+        pencilCoordinator?.capturedStrokeDidFinish(
+            in: canvasView,
+            after: baseline,
+            kind: tool.kind
+        )
+    }
+
+    private func documentPoint(for touch: UITouch) -> CGPoint {
+        guard let webView else { return .zero }
+        let viewportPoint = touch.location(in: webView)
+        let scrollView = webView.scrollView
+        let zoom = max(scrollView.zoomScale, 0.01)
+        return CGPoint(
+            x: (viewportPoint.x + scrollView.contentOffset.x - scrollView.adjustedContentInset.left) / zoom,
+            y: (viewportPoint.y + scrollView.contentOffset.y - scrollView.adjustedContentInset.top) / zoom
+        )
+    }
+}
+
+/// WebView의 hit-test와 제스처를 가로채지 않고 화면에 닿은 손가락의 유무만
+/// 추적한다. Pencil 이동으로 WebView pan이 깨어난 경우와 실제 손가락 pan을
+/// 구분하기 위한 상태 센서다.
+private final class FingerPresenceGestureRecognizer: UIGestureRecognizer,
+    UIGestureRecognizerDelegate
+{
+    var activeDidChange: ((Bool) -> Void)?
+    private var activeTouches: Set<ObjectIdentifier> = []
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        delegate = self
+        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        requiresExclusiveTouchType = false
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        touches.forEach { activeTouches.insert(ObjectIdentifier($0)) }
+        activeDidChange?(true)
+        state = state == .possible ? .began : .changed
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        finish(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        finish(touches)
+    }
+
+    override func reset() {
+        activeTouches.removeAll()
+        activeDidChange?(false)
+        super.reset()
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    private func finish(_ touches: Set<UITouch>) {
+        touches.forEach { activeTouches.remove(ObjectIdentifier($0)) }
+        let hasFinger = !activeTouches.isEmpty
+        activeDidChange?(hasFinger)
+        state = hasFinger ? .changed : .ended
+    }
+}
+
+/// 라이브 프리뷰에서 WebView를 자식으로 호스팅하고, 공통 조상에 설치한
+/// Pencil 전용 recognizer가 잉크만 기록한다. 손가락은 WebView의 원래 입력
+/// 경로를 그대로 사용하므로 hit-test 단계에서 입력 장치를 추측하지 않는다.
 final class PencilPassthroughCanvasView: PKCanvasView {
-    /// 프리뷰의 투명 오버레이로 사용할 때 손가락 hit-test는 아래 WebView로
-    /// 통과시키고 Apple Pencil만 이 캔버스가 받는다.
-    var passesFingerTouchesThrough = false
     private weak var forwardedScrollView: UIScrollView?
     private weak var interactiveWebView: WKWebView?
     private weak var drawingMirror: PKCanvasView?
     private var navigationObservations: [NSKeyValueObservation] = []
-
-    /// WebView가 캔버스의 앞에 있으면 Apple Pencil도 WebKit의 hit-test 대상이
-    /// 되어 PencilKit drawing recognizer까지 도달하지 못한다. 제스처 설정만으로
-    /// 해결할 수 없는 단계이므로 최초 hit-test에서 입력 장치별 목적지를 나눈다.
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if passesFingerTouchesThrough {
-            let touch = event?.allTouches?.min { lhs, rhs in
-                squaredDistance(lhs.location(in: self), point)
-                    < squaredDistance(rhs.location(in: self), point)
-            }
-            // 실제 iPad에서는 손가락의 첫 hit-test에서 allTouches가 아직
-            // 비어 있을 수 있다. 여기서 캔버스를 반환하면 그 터치의 전체
-            // 수명 동안 WebView가 버튼 클릭과 스크롤을 받지 못한다. 미확정
-            // 입력은 아래 WebView로 통과시키고, 실제 Pencil 이벤트만 아래의
-            // 명시적인 .pencil 분기에서 캔버스가 받는다.
-            guard let touch else {
-                return nil
-            }
-            return touch.type == .pencil ? super.hitTest(point, with: event) : nil
-        }
-
-        guard let webView = interactiveWebView else {
-            return super.hitTest(point, with: event)
-        }
-
-        let touch = event?.allTouches?.min { lhs, rhs in
-            squaredDistance(lhs.location(in: self), point)
-                < squaredDistance(rhs.location(in: self), point)
-        }
-
-        if touch?.type == .pencil {
-            // WebView와 표시 전용 mirror를 건너뛰고 PKCanvasView 내부의 실제
-            // drawing surface를 찾는다. 이 뷰를 반환해야 PencilKit이 획을 만든다.
-            for subview in subviews.reversed()
-            where subview !== webView && subview !== drawingMirror {
-                let childPoint = subview.convert(point, from: self)
-                if let hitView = subview.hitTest(childPoint, with: event) {
-                    return hitView
-                }
-            }
-            return self
-        }
-
-        // 손가락과 포인터는 실제 WebView로 보내므로 링크·버튼 클릭, 스크롤,
-        // 핀치 확대/축소가 원래 웹사이트와 동일하게 작동한다.
-        let webPoint = webView.convert(point, from: self)
-        return webView.hitTest(webPoint, with: event) ?? super.hitTest(point, with: event)
-    }
-
-    private func squaredDistance(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
-        let dx = lhs.x - rhs.x
-        let dy = lhs.y - rhs.y
-        return dx * dx + dy * dy
-    }
+    private var pencilCaptureRecognizer: PencilStrokeGestureRecognizer?
+    private var fingerPresenceRecognizer: FingerPresenceGestureRecognizer?
 
     /// 손가락 입력은 아래 WebView가 직접 받고 이 참조는 프리뷰와 잉크의
     /// 스크롤·확대 좌표를 맞추는 용도로만 사용한다.
@@ -153,10 +412,21 @@ final class PencilPassthroughCanvasView: PKCanvasView {
     /// 라이브 프리뷰에서는 WebView를 캔버스의 자식으로 둔다. 손가락은 가장
     /// 앞의 WebView가 직접 처리하고, 부모 캔버스의 Pencil 전용 drawing
     /// recognizer는 같은 터치 계층에서 Apple Pencil만 독립적으로 받는다.
-    func installInteractivePreview(webView: WKWebView, url: URL) {
+    func installInteractivePreview(
+        webView: WKWebView,
+        url: URL,
+        tool: DrawTool,
+        coordinator: PencilCanvas.Coordinator
+    ) {
         if interactiveWebView !== webView {
             interactiveWebView?.removeFromSuperview()
             drawingMirror?.removeFromSuperview()
+            if let pencilCaptureRecognizer {
+                removeGestureRecognizer(pencilCaptureRecognizer)
+            }
+            if let fingerPresenceRecognizer {
+                removeGestureRecognizer(fingerPresenceRecognizer)
+            }
 
             let mirror = PKCanvasView(frame: .zero)
             mirror.backgroundColor = .clear
@@ -183,19 +453,30 @@ final class PencilPassthroughCanvasView: PKCanvasView {
             interactiveWebView = webView
             drawingMirror = mirror
             forwardFingerNavigation(to: webView.scrollView)
-            navigationObservations.append(
-                webView.observe(\.isLoading, options: [.initial, .new]) { [weak self, weak webView] _, _ in
-                    // WebKit이 페이지 로딩 중 내부 뷰와 recognizer를 뒤늦게
-                    // 추가하므로 로딩 상태가 바뀔 때마다 새 항목에도 입력
-                    // 종류 제한을 적용한다.
-                    DispatchQueue.main.async {
-                        guard let self, let webView else { return }
-                        self.restrictGestureRecognizersToFinger(in: webView)
-                    }
-                }
+
+            let capture = PencilStrokeGestureRecognizer(
+                canvasView: self,
+                webView: webView,
+                coordinator: coordinator
             )
+            addGestureRecognizer(capture)
+            pencilCaptureRecognizer = capture
+
+            let fingerPresence = FingerPresenceGestureRecognizer(target: nil, action: nil)
+            fingerPresence.activeDidChange = { [weak capture] active in
+                capture?.setFingerActive(active)
+            }
+            addGestureRecognizer(fingerPresence)
+            fingerPresenceRecognizer = fingerPresence
         }
 
+        pencilCaptureRecognizer?.tool = tool
+        // PencilKit이 drawing 변경 중 내부 subview를 갱신해도 입력 대상과
+        // 표시용 잉크 레이어의 z-order가 뒤집히지 않게 매 업데이트마다 보장한다.
+        bringSubviewToFront(webView)
+        if let drawingMirror {
+            bringSubviewToFront(drawingMirror)
+        }
         webView.isUserInteractionEnabled = true
         webView.isMultipleTouchEnabled = true
         webView.scrollView.isUserInteractionEnabled = true
@@ -205,28 +486,28 @@ final class PencilPassthroughCanvasView: PKCanvasView {
         webView.scrollView.keyboardDismissMode = .interactive
         webView.scrollView.delaysContentTouches = false
         webView.configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        // WKWebView는 pan/pinch 외에도 링크, 선택, 페이지 이동 등을 위한
-        // 내부 recognizer를 여러 개 만든다. 일부만 제한하면 Pencil이 그중
-        // 하나에 잡혀 캔버스까지 도달하지 않는 경우가 있으므로 WebView의
-        // 전체 뷰 계층을 손가락 전용으로 고정한다. 일반 탭/버튼 입력은
-        // direct touch이므로 그대로 동작한다.
-        restrictGestureRecognizersToFinger(in: webView)
+        webView.scrollView.minimumZoomScale = 0.5
+        webView.scrollView.maximumZoomScale = 4.0
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = true
+
+        // 공개된 스크롤 recognizer만 손가락으로 제한한다. WebKit의 private
+        // 하위 recognizer는 건드리지 않는다. Pencil은 공통 조상의 capture가
+        // 즉시 받아 WebView와 독립적으로 처리한다.
+        let directOnly = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        webView.scrollView.panGestureRecognizer.allowedTouchTypes = directOnly
+        webView.scrollView.panGestureRecognizer.requiresExclusiveTouchType = false
+        webView.scrollView.pinchGestureRecognizer?.allowedTouchTypes = directOnly
+        webView.scrollView.pinchGestureRecognizer?.requiresExclusiveTouchType = false
+
+        // 라이브 프리뷰에서는 PencilKit 자체 recognizer 대신 공통 조상의
+        // capture가 drawing을 작성한다. 두 recognizer가 같은 Pencil을 두고
+        // 경쟁하지 않도록 native recognizer는 이 모드에서만 끈다.
+        drawingGestureRecognizer.isEnabled = false
         if webView.url == nil {
             webView.load(URLRequest(url: url))
         }
         refreshDrawingMirror()
         synchronizeNavigation()
-    }
-
-    private func restrictGestureRecognizersToFinger(in view: UIView) {
-        let fingerOnly = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        view.gestureRecognizers?.forEach { recognizer in
-            recognizer.allowedTouchTypes = fingerOnly
-            // 펜 드로잉 recognizer와 손가락 WebView recognizer가 서로 다른
-            // 입력 종류로 동시에 진행될 수 있어야 한다.
-            recognizer.requiresExclusiveTouchType = false
-        }
-        view.subviews.forEach { restrictGestureRecognizersToFinger(in: $0) }
     }
 
     fileprivate func refreshDrawingMirror() {
@@ -236,6 +517,12 @@ final class PencilPassthroughCanvasView: PKCanvasView {
 
     private func synchronizeNavigation() {
         guard let scrollView = forwardedScrollView else { return }
+
+        // KVO는 Pencil이 WebView pan을 잘못 움직인 직후에도 호출된다. 이때
+        // overlay에 잘못된 offset을 복사하기 전에 먼저 WebView를 복원한다.
+        if pencilCaptureRecognizer?.restoreWebNavigationIfPencilOnly() == true {
+            return
+        }
 
         let targetZoom = max(scrollView.zoomScale, 0.01)
         minimumZoomScale = min(scrollView.minimumZoomScale, targetZoom)
@@ -309,6 +596,7 @@ struct PencilCanvas: UIViewRepresentable {
     var interactiveURL: URL? = nil
 
     func makeUIView(context: Context) -> PKCanvasView {
+        context.coordinator.currentKind = tool?.kind
         canvasView.drawingPolicy = allowFingerDrawing ? .anyInput : .pencilOnly
         (canvasView as? PencilPassthroughCanvasView)?.configurePencilInputRouting(
             allowFingerDrawing: allowFingerDrawing
@@ -317,7 +605,7 @@ struct PencilCanvas: UIViewRepresentable {
         canvasView.isOpaque = false
         canvasView.delegate = context.coordinator
         applyTool(canvasView, context: context)
-        installInteractivePreviewIfNeeded(on: canvasView)
+        installInteractivePreviewIfNeeded(on: canvasView, context: context)
         return canvasView
     }
 
@@ -329,14 +617,19 @@ struct PencilCanvas: UIViewRepresentable {
             allowFingerDrawing: allowFingerDrawing
         )
         applyTool(uiView, context: context)
-        installInteractivePreviewIfNeeded(on: uiView)
+        installInteractivePreviewIfNeeded(on: uiView, context: context)
     }
 
-    private func installInteractivePreviewIfNeeded(on view: PKCanvasView) {
+    private func installInteractivePreviewIfNeeded(on view: PKCanvasView, context: Context) {
         guard let interactiveWebView,
               let interactiveURL,
               let previewCanvas = view as? PencilPassthroughCanvasView else { return }
-        previewCanvas.installInteractivePreview(webView: interactiveWebView, url: interactiveURL)
+        previewCanvas.installInteractivePreview(
+            webView: interactiveWebView,
+            url: interactiveURL,
+            tool: tool ?? DrawTool(),
+            coordinator: context.coordinator
+        )
     }
 
     private func applyTool(_ view: PKCanvasView, context: Context) {
@@ -389,6 +682,16 @@ struct PencilCanvas: UIViewRepresentable {
                 guard kind == .pen || kind == .marker else { return }
                 self.snapLatestStroke(in: canvasView, after: baseline)
             }
+        }
+
+        func capturedStrokeDidFinish(
+            in canvasView: PKCanvasView,
+            after baseline: Int,
+            kind: PenKind
+        ) {
+            guard kind == .pen || kind == .marker else { return }
+            snapLatestStroke(in: canvasView, after: baseline)
+            (canvasView as? PencilPassthroughCanvasView)?.refreshDrawingMirror()
         }
 
         private func snapLatestStroke(in canvasView: PKCanvasView, after baseline: Int) {
