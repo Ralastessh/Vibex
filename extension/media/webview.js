@@ -4840,7 +4840,7 @@
     }
   });
 
-  // vibex-extension/source-0.4.15/extension/webview/main.js
+  // extension/webview/main.js
   var MarkdownIt = require_index_cjs4();
   var vscode = acquireVsCodeApi();
   var md = new MarkdownIt({ html: false, linkify: true, breaks: false });

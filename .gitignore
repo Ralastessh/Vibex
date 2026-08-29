@@ -21,9 +21,6 @@ ipad-app/**/DerivedData/
 # macOS
 .DS_Store
 
-# Vibex로 제어하는 로컬 독립 테스트 저장소
-/test-projects/
-
 # Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋한다)
 *.xcworkspace/xcuserdata/
 ipad-app/**/xcuserdata/
@@ -31,9 +28,9 @@ ipad-app/**/xcuserdata/
 # 백엔드 로컬 백업
 backend/.env.bak.*
 backend/projects.local.json.bak
+backend/tests/
 
 # 머신별 로컬 설정 (scripts/setup.sh 가 생성)
 ipad-app/Local.xcconfig
 
-# 로컬 참조용 upstream 포크 (1.5GB, 저장소에 넣지 않음)
-vscode-copilot-chat-main/
+/test-projects/

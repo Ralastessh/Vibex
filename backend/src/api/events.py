@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-import secrets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("bridge.api.events")
@@ -11,7 +10,7 @@ router = APIRouter(tags=["events"])
 HEARTBEAT_SECONDS = 25.0
 
 # HTTP 통신 이외에, 백그라운드에서도 PC와의 연결을 유지하기 위하여 Websocket을 사용
-def _authorized(websocket: WebSocket, token: str | None) -> bool:
+def _authorized(websocket: WebSocket) -> bool:
     client = websocket.client.host if websocket.client else "unknown"
     try:
         is_loopback = client.lower() == "localhost" or ipaddress.ip_address(client).is_loopback
@@ -27,15 +26,11 @@ def _authorized(websocket: WebSocket, token: str | None) -> bool:
     if tailscale_login:
         return False
 
-    expected = websocket.app.state.settings.device_token.strip()
-    header = websocket.headers.get("authorization", "")
-    scheme, _, header_token = header.partition(" ")
-    candidate = header_token.strip() if scheme.lower() == "bearer" else (token or "")
-    return bool(expected and candidate) and secrets.compare_digest(candidate, expected)
+    return False
 
 @router.websocket("/events")
-async def events(websocket: WebSocket, token: str | None = None) -> None:
-    if not _authorized(websocket, token):
+async def events(websocket: WebSocket) -> None:
+    if not _authorized(websocket):
         client = websocket.client.host if websocket.client else "unknown"
         logger.warning("인증 실패 (%s): WS /events", client)  # §18.12
         await websocket.close(code=1008)

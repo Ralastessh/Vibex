@@ -10,11 +10,6 @@ conversation, and the same conversation is available from the iPad app.
 
 ## Using it
 
-- **중앙 Vibex 화면** — 우측 Vibex 탭 제목줄의 `편집기 열기` 아이콘 또는
-  `Vibex: 중앙 채팅 편집기 열기` 명령을 누릅니다. 이 화면은 별도 구현물이
-  아니라 VS Code가 Vibex Chat Session을 중앙 editor area에 렌더한 네이티브
-  화면이며, 우측 패널과 같은 백엔드 대화를 사용합니다.
-
 - **New session** — the Vibex tab's new-session button, or `Vibex: 새 세션 시작`.
   The project is taken from the open workspace folder when it matches a
   registered Vibex project.

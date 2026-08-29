@@ -26,8 +26,6 @@ def default_workspace_root() -> Path | None:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BRIDGE_", env_file=ENV_FILES, extra="ignore")
-    # 이전 앱 빌드 호환용. 새 연결은 Tailscale Serve의 사용자 신원을 쓴다.
-    device_token: str = ""
     tailscale_allowed_users: str = ""
     projects_file: Path = REPO_ROOT / "projects.local.json"
     conversations_file: Path | None = None
