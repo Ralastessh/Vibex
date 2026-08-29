@@ -28,8 +28,8 @@ PC의 VS Code 패널에서 같은 대화를 유지한 채 턴별 Codex/Claude �
 
 ### 2. iPad 앱
 <p align="center">
-  <img src="vibex_canvas.png" width="50%" align="left">
-  <img src="vibex_preview.png" width="50%" align="right">
+  <img src="vibex_canvas.png" width="45%" align="left">
+  <img src="vibex_preview.png" width="45%" align="right">
 </p>
 
 - 새 프로젝트 생성 · 기존 프로젝트 접속
