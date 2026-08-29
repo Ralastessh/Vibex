@@ -1,0 +1,3 @@
+[submodule "test-projects/hangman_game"]
+	path = test-projects/hangman_game
+	url = https://github.com/Ralastessh/Hangman.git
