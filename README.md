@@ -90,7 +90,7 @@ cd ../..
 ### 3. PC용 앱 (VS Code 확장프로그램) 설치
 
 ```bash
-code /Users/kimjoonsu/Desktop/Vibex
+code /Users/kimjoonsu/Vibex
 ```
 VS Code에서 아래를 실행합니다.
 
@@ -103,7 +103,7 @@ VS Code에서 아래를 실행합니다.
 확장이 backend 위치를 못 찾으면 명령 팔레트에서 `Vibex: 백엔드 폴더 설정`을 실행하고 아래 경로를 입력합니다.
 
 ```text
-/Users/kimjoonsu/Desktop/Vibex/backend
+/Users/kimjoonsu/Vibex/backend
 ```
 
 ### 4. iPad용 앱 설치
