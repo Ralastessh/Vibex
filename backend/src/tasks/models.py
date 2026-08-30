@@ -1,3 +1,9 @@
+"""작업과 대화, 질문에 들어가는 데이터 형식을 모아 둔 파일입니다.
+
+앱에 보내는 JSON은 camelCase를 쓰지만 파이썬 코드 안에서는 snake_case를 씁니다.
+작업 중인지 끝난 상태인지 구분하는 목록도 여기서 한 번만 정해 두고 같이 사용합니다.
+"""
+
 from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum

@@ -1,3 +1,9 @@
+"""Codex app-server 프로세스와 JSON 메시지를 주고받는 부분입니다.
+
+보낸 요청과 받은 답을 ID로 맞추고, 응답 제한 시간을 확인한다. 프로세스 오류 메시지를
+모으거나 종료하는 일도 여기서 처리합니다.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -205,4 +211,3 @@ class CodexAppServerClient:
             with suppress(Exception):
                 await self._stderr_task
         self._stderr_task = None
-

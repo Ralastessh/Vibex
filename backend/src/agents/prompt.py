@@ -1,3 +1,5 @@
+"""사용자가 보낸 글이나 그림, 질문에 대한 답을 에이전트용 요청문으로 만듭니다."""
+
 from __future__ import annotations
 from src.agents.contract import OUTPUT_CONTRACT, output_contract
 

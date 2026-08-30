@@ -1,3 +1,9 @@
+"""FastAPI 앱을 만들고 각 API와 공용 객체를 연결하는 시작점입니다.
+
+설정, 작업 저장소, 에이전트, 미리보기 서버처럼 앱 전체에서 같이 쓰는 객체를 여기서
+만듭니다. 서버가 꺼질 때 정리해야 하는 객체도 이 파일에서 마무리합니다.
+"""
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -21,6 +27,11 @@ API_PREFIX = "/api/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """전달받은 설정으로 새 FastAPI 앱을 만듭니다.
+
+    테스트에서는 임시 설정을 넣어 실제 사용자 데이터를 건드리지 않게 할 수 있습니다.
+    파일이나 프로세스를 쓰는 객체는 서버 시작 때 만들고 종료할 때 정리합니다.
+    """
     settings = settings or get_settings()
 
     @asynccontextmanager

@@ -1,9 +1,10 @@
+// 전체 앱 흐름을 거치지 않고 캔버스와 전송 기능만 빠르게 확인하는 개발용 화면입니다.
+// 실제 사용자가 들어오는 화면은 RootView이므로 앱 기능을 추가할 때 둘을 혼동하면 안 됩니다.
+
 import PencilKit
 import SwiftUI
 import UIKit
 
-/// 개발용 시험 화면. 실기기에서 캔버스·전송 계층만 빠르게 만져 볼 때 쓴다.
-/// 실제 흐름은 RootView에 있으므로 앱 진입점은 아니다.
 struct HarnessView: View {
     @AppStorage("bridgeBaseURL") private var baseURLText = "http://127.0.0.1:8787"
     @AppStorage("bridgeProjectId") private var projectId = "demo"

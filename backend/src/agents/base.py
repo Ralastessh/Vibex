@@ -1,3 +1,5 @@
+"""에이전트 종류가 달라도 같은 방식으로 실행할 수 있게 공통 형태를 정해 둔 파일입니다."""
+
 from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable

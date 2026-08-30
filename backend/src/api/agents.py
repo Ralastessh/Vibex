@@ -1,3 +1,5 @@
+"""현재 컴퓨터에서 쓸 수 있는 에이전트와 선택 가능한 옵션을 알려 주는 API입니다."""
+
 from __future__ import annotations
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field

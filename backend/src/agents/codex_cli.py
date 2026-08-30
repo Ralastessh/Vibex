@@ -1,3 +1,9 @@
+"""Codex app-server를 백엔드에서 편하게 쓸 수 있도록 감싼 코드입니다.
+
+대화 기록을 찾고, 선택한 대화가 현재 프로젝트의 것인지 확인한다. 실행 중 계속 들어오는
+진행 메시지는 화면에 보내기 좋은 형태로 모아서 전달합니다.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -247,7 +253,11 @@ class _ProgressCollector:
 
 
 class CodexCLIAdapter:
-    """Codex App Server를 통해 VS Code/CLI와 같은 thread 저장소를 사용한다."""
+    """VS Code나 CLI가 쓰는 Codex 대화 기록을 그대로 사용하는 어댑터입니다.
+
+    다른 프로젝트의 대화를 실수로 건드리지 않도록 읽기, 이름 변경, 보관 작업을 할 때마다
+    대화의 작업 폴더를 확인합니다. 실행 중 받은 메시지는 진행 상황과 최종 결과로 나눠 보냅니다.
+    """
 
     def __init__(self, binary: str = "codex", *, timeout_seconds: float = 1800) -> None:
         self._binary = binary

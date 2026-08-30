@@ -1,3 +1,5 @@
+"""가짜 Codex 서버를 사용해 대화 재개와 진행 메시지, 권한 설정을 확인합니다."""
+
 from __future__ import annotations
 
 import json

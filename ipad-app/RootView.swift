@@ -1,6 +1,7 @@
-import SwiftUI
+// 서버 연결 설정부터 프로젝트와 대화 선택, 작업 결과 확인까지 앱의 기본 흐름을 구성합니다.
+// 여러 화면에서 함께 쓰는 프로젝트 목록과 BridgeClient도 AppModel이 여기서 관리합니다.
 
-// 앱 흐름: 목록 → PC 라이브 프론트엔드 → 드로잉 → 작업 상태.
+import SwiftUI
 
 extension TaskCreated: Identifiable {
     var id: String { taskId }
@@ -10,6 +11,9 @@ extension TaskView: Identifiable {
     var id: String { taskId }
 }
 
+/// 프로젝트와 에이전트 목록처럼 여러 화면에서 함께 쓰는 데이터를 관리합니다.
+/// 서버 요청은 메인 스레드를 막지 않도록 비동기로 실행하고, 화면에 반영하는 값만
+/// MainActor에서 변경합니다.
 @MainActor
 final class AppModel: ObservableObject {
     @Published var projects: [ProjectView] = []
@@ -59,6 +63,7 @@ final class AppModel: ObservableObject {
 
 // MARK: - 루트
 
+/// 서버 연결 여부에 따라 설정 화면이나 프로젝트 화면 중 알맞은 화면을 보여 줍니다.
 struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var showSettings = false

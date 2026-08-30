@@ -1,4 +1,10 @@
 # LLM 에이전트 중 Claude Code와의 호환성 검증용
+"""Claude Code를 실행하고 그 결과를 백엔드에서 쓰는 형태로 바꿔 줍니다.
+
+이전 세션을 찾는 일부터 명령어 옵션을 만드는 일, 시간 초과나 권한 오류를 처리하는
+일까지 여기서 맡습니다.
+"""
+
 from __future__ import annotations
 import asyncio
 import json
@@ -36,6 +42,11 @@ def session_dir_for(repo_path: Path) -> Path:
 
 # Claude Code 전용 어뎁터 클래스
 class ClaudeCodeAdapter:
+    """Claude Code 프로세스를 실행하는 어댑터입니다.
+
+    요청받은 권한만 명령어 옵션에 넣는다. 프로젝트에 테스트 명령이 없다면 Bash 권한도
+    굳이 열어 주지 않습니다. 실행 결과는 성공이든 실패든 AgentRunResult로 돌려줍니다.
+    """
     def __init__(
         self,
         binary: str = "claude",

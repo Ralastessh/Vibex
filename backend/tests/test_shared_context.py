@@ -1,3 +1,5 @@
+"""에이전트를 바꿔도 앞 대화가 필요한 만큼 전달되고 긴 대화는 잘 줄어드는지 확인합니다."""
+
 from __future__ import annotations
 
 import src.tasks.store as store_module

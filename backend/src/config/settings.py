@@ -1,3 +1,9 @@
+"""환경 변수와 env 파일에서 백엔드 설정을 읽습니다.
+
+터미널을 어느 폴더에서 열었는지에 따라 설정이 달라지면 안 되므로, 기본 경로는 현재
+폴더가 아니라 이 저장소 위치를 기준으로 계산합니다.
+"""
+
 from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path

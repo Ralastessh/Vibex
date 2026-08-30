@@ -1,3 +1,5 @@
+"""VIBEX 대화를 만들고, 이름을 바꾸고, 보관하거나 삭제하는 API입니다."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request

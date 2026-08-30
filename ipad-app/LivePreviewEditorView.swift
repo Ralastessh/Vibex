@@ -1,9 +1,11 @@
+// PC에서 실행 중인 웹 화면을 iPad에서 조작하고 그 위에 주석을 그리는 화면입니다.
+// 웹 화면, PencilKit 캔버스, 질문 위치 표시가 같은 좌표계를 사용해야 정확한 위치가 전달됩니다.
+
 import PencilKit
 import Foundation
 import SwiftUI
 import WebKit
 
-/// PC에서 실행한 프론트엔드를 그대로 조작하고, 같은 화면 좌표계에 주석을 그린다.
 struct LivePreviewEditorView: View {
     @ObservedObject var model: AppModel
     let projectId: String

@@ -1,3 +1,9 @@
+"""서버에서 사용할 프로젝트 목록과 에이전트 대화 정보를 저장합니다.
+
+앱이 실제 폴더 경로를 마음대로 보내지 못하게 하고, 미리 등록한 프로젝트 ID만 받습니다.
+덕분에 백엔드가 허용하지 않은 폴더를 읽거나 수정하는 일을 막을 수 있습니다.
+"""
+
 from __future__ import annotations
 
 import json
@@ -60,6 +66,11 @@ class DuplicateProjectError(ValueError):
 
 
 class ProjectRegistry:
+    """프로젝트 ID로 실제 폴더와 실행 설정을 찾을 수 있게 관리합니다.
+
+    설정 파일에 직접 적은 프로젝트와 작업 폴더에서 자동으로 찾은 프로젝트를 합칩니다.
+    둘이 겹치면 사용자가 직접 적은 설정을 따르고 에이전트와 대화 선택도 같이 저장합니다.
+    """
     def __init__(
         self,
         projects: list[Project],

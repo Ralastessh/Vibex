@@ -1,3 +1,5 @@
+"""앱에서 받은 이미지가 안전하게 저장되고 에이전트에게 전달되는지 확인합니다."""
+
 from __future__ import annotations
 
 import pytest

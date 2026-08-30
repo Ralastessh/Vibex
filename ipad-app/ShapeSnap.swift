@@ -1,7 +1,8 @@
+// 손으로 그린 점들을 사각형, 원, 삼각형, 직선 같은 반듯한 도형으로 바꿉니다.
+// 짧거나 모양이 애매한 획은 억지로 바꾸지 않고 인식 실패로 돌려줍니다.
+
 import CoreGraphics
 import Foundation
-
-/// 손그림 획을 깔끔한 도형으로 스냅 (네모·정사각형·원·타원·삼각형·직선).
 
 enum ShapeKind {
     case rectangle, square, circle, ellipse, triangle, line

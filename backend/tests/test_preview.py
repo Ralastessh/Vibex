@@ -1,3 +1,5 @@
+"""프로젝트에 맞는 미리보기 실행 방법을 찾고 서버를 시작하는 과정을 확인합니다."""
+
 from __future__ import annotations
 
 from src.projects.preview import (

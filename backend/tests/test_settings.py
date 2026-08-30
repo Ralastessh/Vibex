@@ -1,3 +1,5 @@
+"""실행한 폴더가 달라도 같은 설정을 읽고 환경 변수를 우선하는지 확인합니다."""
+
 from __future__ import annotations
 import os
 import pathlib

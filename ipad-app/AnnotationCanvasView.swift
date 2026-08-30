@@ -1,7 +1,10 @@
+// 스크린샷 위에 PencilKit 주석을 그리고 백엔드 작업으로 보내는 화면입니다.
+// 화면에서 본 위치와 서버로 보내는 이미지의 위치가 어긋나지 않도록 배경과 캔버스는
+// 항상 같은 크기로 맞춰야 합니다.
+
 import PencilKit
 import SwiftUI
 
-/// Vibex 주석 캔버스 화면.
 struct AnnotationCanvasView: View {
 
     /// 어느 프로젝트에 보낼 작업인지. 경로는 서버가 정하므로 id만 넘긴다.

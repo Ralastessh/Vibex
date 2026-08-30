@@ -1,3 +1,5 @@
+"""작업 상태가 바뀌면 WebSocket으로 연결된 앱에 알려 줍니다."""
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -8,6 +10,11 @@ logger = logging.getLogger("bridge.events")
 QUEUE_SIZE = 64
 
 class EventBroker:
+    """연결된 앱마다 따로 이벤트 대기열을 관리합니다.
+
+    한 앱의 연결이 느리다고 전체 작업이 멈추면 안 되므로 대기열이 가득 차면 그 이벤트는
+    건너뜁니다. 놓친 상태가 필요하면 앱에서 작업 조회 API를 다시 호출하면 됩니다.
+    """
     def __init__(self) -> None:
         self._subscribers: set[asyncio.Queue] = set()
 
@@ -24,6 +31,7 @@ class EventBroker:
         return len(self._subscribers)
 
     def publish(self, event: dict[str, Any]) -> None:
+        """현재 연결된 앱에 이벤트를 보내되 꽉 찬 대기열은 건너뜁니다."""
         for queue in list(self._subscribers):
             try:
                 queue.put_nowait(event)

@@ -1,3 +1,9 @@
+"""에이전트 답변 끝에 붙는 VIBEX 결과 블록을 만들고 읽습니다.
+
+사용자에게 보여 줄 글과 백엔드가 읽어야 하는 작업 상태를 나누기 위한 형식입니다.
+결과 블록이 깨졌다면 완료로 넘기지 않고 오류로 처리합니다.
+"""
+
 from __future__ import annotations
 import json
 import re

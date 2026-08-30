@@ -1,8 +1,9 @@
+// PencilKit 획을 올가미로 골라 이동하거나 크기를 바꾸고 삭제하는 화면입니다.
+// PencilKit 기본 올가미는 선택된 획을 알려 주지 않아서 선택 판정과 변환을 직접 처리합니다.
+
 import PencilKit
 import SwiftUI
 
-// 올가미로 획을 골라 이동·크기조절·삭제한다.
-// PencilKit 기본 올가미는 무엇이 선택됐는지 못 알려줘서 직접 만든다.
 struct SelectionOverlay: View {
     let canvasView: PKCanvasView
     @Binding var selection: Set<Int>

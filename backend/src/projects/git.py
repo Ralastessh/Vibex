@@ -1,3 +1,9 @@
+"""에이전트가 작업하기 전과 후의 Git 상태를 비교합니다.
+
+사용자가 원래 수정하던 내용까지 에이전트가 바꾼 것으로 표시하면 안 된다. 그래서 단순히
+수정 파일 이름만 보지 않고 커밋, 스테이징 영역, 실제 파일 내용을 같이 기록해 비교합니다.
+"""
+
 from __future__ import annotations
 import os
 import subprocess
@@ -52,6 +58,11 @@ def _path_of(entry: str) -> str:
     return body.strip().strip('"')
 
 def snapshot(repo_path: Path) -> GitSnapshot:
+    """현재 커밋과 스테이징 영역, 실제 파일 상태를 한 번에 기록합니다.
+
+    아직 첫 커밋을 만들지 않은 저장소도 빈 저장소로 보고 처리한다. Git 저장소가 아닌
+    폴더가 들어오면 호출한 쪽에서 알아보기 쉽게 처리할 수 있도록 전용 오류를 냅니다.
+    """
     # branch와 커밋되지 않은 부분을 확인
     if not repo_path.is_dir():
         raise FileNotFoundError(f"저장소 경로가 없습니다: {repo_path}")
@@ -103,6 +114,11 @@ class GitDelta:
 
 # 전후 변경사항
 def diff(before: GitSnapshot, after: GitSnapshot) -> GitDelta:
+    """두 기록을 비교해서 에이전트 작업 중에 생긴 변경만 찾습니다.
+
+    작업 전부터 수정 중이던 파일은 내용이 더 바뀐 경우에만 결과에 포함한다. 새 파일과
+    삭제한 파일, 브랜치 변경도 확인하고 나중에 되돌릴 때 쓸 패치도 함께 만듭니다.
+    """
     if before.repo_path != after.repo_path:
         raise ValueError("서로 다른 저장소의 스냅샷은 비교할 수 없습니다.")
 

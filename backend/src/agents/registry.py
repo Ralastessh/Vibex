@@ -1,4 +1,6 @@
 # Claude Code 이외의 다른 LLM에 연결
+"""현재 사용할 수 있는 에이전트를 찾고 알맞은 어댑터를 만들어 줍니다."""
+
 from __future__ import annotations
 import shutil
 from dataclasses import dataclass

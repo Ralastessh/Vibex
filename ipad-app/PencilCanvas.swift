@@ -1,3 +1,7 @@
+// PencilKit 캔버스와 웹 미리보기를 함께 사용할 수 있도록 입력을 나눠 처리합니다.
+// Apple Pencil은 그림을 그리고 손가락은 웹 화면을 스크롤하거나 누를 수 있어야 하므로
+// UIKit 제스처 처리 순서를 바꿀 때는 두 입력이 모두 정상인지 확인해야 합니다.
+
 import PencilKit
 import SwiftUI
 import WebKit

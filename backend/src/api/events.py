@@ -1,3 +1,5 @@
+"""작업 상태가 바뀔 때 앱으로 바로 알려 주는 WebSocket API입니다."""
+
 from __future__ import annotations
 import asyncio
 import ipaddress

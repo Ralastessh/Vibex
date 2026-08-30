@@ -1,3 +1,5 @@
+"""프로젝트 이름을 안전한 폴더 이름으로 바꾸고 새 Git 저장소를 만듭니다."""
+
 from __future__ import annotations
 import re
 import subprocess

@@ -1,3 +1,5 @@
+"""에이전트에게 보낼 이미지를 임시 파일로 저장하고 작업이 끝나면 정리합니다."""
+
 from __future__ import annotations
 
 import shutil

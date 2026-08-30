@@ -1,3 +1,5 @@
+"""한 대화에서 여러 에이전트를 번갈아 써도 각 대화 기록이 제대로 남는지 확인합니다."""
+
 from __future__ import annotations
 
 from tests.conftest import AUTH

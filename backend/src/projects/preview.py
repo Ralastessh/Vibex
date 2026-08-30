@@ -1,3 +1,9 @@
+"""프로젝트에서 화면을 띄울 방법을 찾아 미리보기 서버를 실행합니다.
+
+따로 정한 실행 명령이 있으면 그 명령을 쓰고, 없으면 package.json이나 index.html을
+찾아 실행 방법을 정합니다. 프로세스만 켜졌다고 성공으로 보지 않고 실제 접속까지 확인합니다.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -242,7 +248,11 @@ def vite_allowed_host(public_host: str) -> str:
 
 
 class PreviewManager:
-    """프로젝트 dev server를 PC에서 시작하고 iPad가 열 URL을 관리한다."""
+    """프로젝트마다 미리보기 서버가 하나만 실행되도록 관리합니다.
+
+    시작과 종료 요청이 동시에 들어와도 순서대로 처리한다. 서버가 제한 시간 안에 접속을
+    받지 못하면 실패 로그를 남기고 방금 만든 프로세스도 종료합니다.
+    """
 
     def __init__(self, *, start_timeout: float = 180.0) -> None:
         self._start_timeout = start_timeout

@@ -1,3 +1,7 @@
+// 새 프로젝트를 만들기 전에 화면 구성과 작업 흐름을 여러 장으로 그리는 화면입니다.
+// 작성한 페이지는 로컬에 임시 저장하며, 프로젝트가 만들어지면 이미지와 설명을 묶어서
+// 첫 번째 에이전트 작업으로 전송합니다.
+
 import PencilKit
 import PhotosUI
 import SwiftUI
@@ -49,6 +53,9 @@ enum BlueprintPaper: String, CaseIterable, Identifiable {
     }
 }
 
+/// 설계 문서 한 장의 내용과 PencilKit 캔버스를 함께 보관합니다.
+/// 캔버스는 값 타입으로 다시 만들면 실행 취소 기록이 사라질 수 있어서 페이지가 살아 있는
+/// 동안 같은 인스턴스를 계속 사용합니다.
 @MainActor
 final class BlueprintPageDraft: ObservableObject, Identifiable {
     let id: UUID
@@ -99,8 +106,8 @@ private struct StoredBlueprintPage: Codable {
     let backgroundImage: Data?
 }
 
-/// 한 프로젝트의 UI·워크플로·특이사항을 하나의 문서 묶음으로 보관한다.
-/// 프로젝트 목록을 종류별로 쪼개지 않고, 프로젝트 안에서 전환해 작업한다.
+/// 한 프로젝트의 화면 구성과 작업 흐름, 참고 사항을 하나의 문서 묶음으로 보관합니다.
+/// 설계 문서는 대화마다 따로 저장하므로 새 대화를 열었을 때 이전 그림이 섞이지 않습니다.
 @MainActor
 private final class ProjectBlueprintWorkspace: ObservableObject {
     @Published private(set) var pages: [BlueprintPageDraft]

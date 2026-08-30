@@ -1,3 +1,9 @@
+"""프로젝트 목록과 Codex 대화 기록, 미리보기 서버를 다루는 API입니다.
+
+실제 폴더 경로는 앱에 보내지 않고 프로젝트 ID만 사용한다. Codex 대화를 읽거나 바꾸기
+전에는 현재 프로젝트에서 만든 대화가 맞는지도 확인합니다.
+"""
+
 from __future__ import annotations
 from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request

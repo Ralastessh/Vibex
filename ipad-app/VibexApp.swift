@@ -1,3 +1,6 @@
+// iPad 앱의 시작점입니다.
+// 예전 버전이 저장한 서버 포트가 남아 있으면 현재 포트로 바꾼 다음 RootView를 엽니다.
+
 import SwiftUI
 
 @main

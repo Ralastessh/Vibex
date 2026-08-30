@@ -1,3 +1,9 @@
+"""서버가 살아 있는지 확인하고 접속 가능한 Tailscale 기기를 찾습니다.
+
+로그인 전에도 호출하는 API라서 연결 확인에 꼭 필요한 정보만 응답한다. 서버 토큰이나
+프로젝트 경로처럼 밖으로 나가면 안 되는 값은 절대 넣지 않습니다.
+"""
+
 from __future__ import annotations
 import json
 import os

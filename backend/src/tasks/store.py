@@ -1,3 +1,9 @@
+"""작업과 대화 내용을 메모리에 보관하고 JSON 파일에도 저장합니다.
+
+한 프로젝트에서 작업이 두 개씩 실행되지 않게 막고, 앱이 같은 요청을 다시 보내도 작업이
+중복으로 생기지 않게 합니다. 읽은 값을 밖에서 수정해도 원본이 바뀌지 않도록 복사해서 돌려줍니다.
+"""
+
 from __future__ import annotations
 import json
 import logging
@@ -37,6 +43,11 @@ class ProjectBusyError(RuntimeError):
 
 
 class TaskStore:
+    """작업과 대화, 프로젝트별 실행 중인 작업을 함께 관리합니다.
+
+    여러 요청이 동시에 들어와도 저장 중인 값이 꼬이지 않도록 잠금을 잡고 수정합니다.
+    상태 변경 알림은 알림을 받은 쪽에서 저장소를 다시 호출할 수 있어서 잠금을 푼 뒤 보냅니다.
+    """
     def __init__(
         self,
         on_change=None,
@@ -92,6 +103,11 @@ class TaskStore:
         thread_id: str | None = None,
         conversation_id: str | None = None,
     ) -> Task:
+        """대기 상태의 작업을 만들고 이 프로젝트를 사용 중으로 표시합니다.
+
+        같은 client_task_id가 다시 들어오면 새 작업을 만들지 않고 기존 작업을 돌려줍니다.
+        프로젝트에 이미 실행 중인 작업이 있다면 ProjectBusyError를 냅니다.
+        """
         with self._lock:
             # 같은 clientTaskId면 끝난 작업이라도 원래 것을 돌려준다.
             # iPad가 네트워크 문제로 재전송해도 작업이 두 번 생기면 안 된다.
@@ -409,6 +425,11 @@ class TaskStore:
         review_after_tree: str | None = None,
         undone: bool | None = None,
     ) -> Task:
+        """작업 내용을 바꾸고 그에 따라 관련된 저장 정보도 함께 갱신합니다.
+
+        작업이 끝나면 프로젝트 사용 중 표시를 풀어 다음 작업이 시작될 수 있게 합니다.
+        리뷰에 쓰는 큰 패치는 작업 본문과 따로 저장하고 결과는 복사해서 돌려줍니다.
+        """
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:

@@ -1,6 +1,8 @@
+// 백엔드에서 보내는 작업 상태를 WebSocket으로 받는 코드입니다.
+// 현재 화면은 폴링을 주로 사용하지만, 실시간 갱신으로 바꿀 때 사용할 수 있도록 남겨 둡니다.
+
 import Foundation
 
-// WebSocket 진행 이벤트(보조 — 지금은 폴링을 씀).
 // TODO: 이벤트 페이로드 형태 백엔드와 확인.
 final class EventStream {
     private let url: URL?
