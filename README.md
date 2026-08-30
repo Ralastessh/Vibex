@@ -95,7 +95,7 @@ code /Users/kimjoonsu/Vibex
 VS Code에서 아래를 실행합니다.
 
 1. `Extensions: Install from VSIX...`
-2. `vibex-extension/vibex-0.4.15.vsix` 선택
+2. `extension/vibex-0.4.15.vsix` 선택
 3. `Developer: Reload Window`
 4. Chat 또는 우측 Secondary Sidebar에서 `Vibex` 열기
 5. 프로젝트 목록에 `hangman_game`이 보이는지 확인
