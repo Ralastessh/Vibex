@@ -112,12 +112,11 @@ VS Code에서 아래를 실행합니다.
 `http://127.0.0.1:8787`을 사용합니다.
 
 ```bash
-cd ipad-app
-xcodegen generate
-open Vibex.xcodeproj
+chmod +x scripts/setup.sh
+./scripts/setup.sh
 ```
 
-Xcode에서 `Vibex` scheme과 iPad Simulator를 선택한 뒤 `Command+R`을 누릅니다. 앱이 뜨면 톱니바퀴 연결 설정에서 `이 Mac에 연결됨` 또는 프로젝트 개수를 확인하고, `hangman_game` 프로젝트를 선택합니다.
+Xcode에서 iPad Simulator를 선택한 뒤 `Command+R`을 누릅니다. 앱이 뜨면 톱니바퀴 연결 설정에서 `이 Mac에 연결됨` 또는 프로젝트 개수를 확인하고, `hangman_game` 프로젝트를 선택합니다.
 
 #### B. 실제 iPad로 실행
 Tailscale MagicDNS 경로를 사용합니다.
