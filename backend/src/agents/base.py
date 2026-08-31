@@ -1,5 +1,4 @@
-"""에이전트 종류가 달라도 같은 방식으로 실행할 수 있게 공통 형태를 정해 둔 파일입니다."""
-
+"""타 LLM으로의 모델 전환 시에도 동일하게 실행할 수 있게 통합 스키마를 정의"""
 from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable
@@ -9,8 +8,7 @@ from src.tasks.models import ActivityItem, AgentUsage, ApprovalMode
 
 
 class AgentProgress(BaseModel):
-    """한 turn을 실행하는 동안 클라이언트에 공개할 수 있는 누적 상태."""
-
+    """하나의 턴에 클라이언트로 전송하는 누적 채팅"""
     agent_reply: str = ""
     activity_items: list[ActivityItem] = Field(default_factory=list)
     thread_id: str | None = Field(default=None, alias="threadId")
@@ -24,9 +22,9 @@ class AgentProgress(BaseModel):
 ProgressCallback = Callable[[AgentProgress], None]
 
 class AgentRunResult(BaseModel):
+    # 모델 간 전환에서 중요한 부분은 상호 간의 채팅 컨텍스트 공유 -> 각 세션 저장 필드 이용
+    # session_id는 Claude Code 전용 필드, Codex App Server의 thread/turn id는 Codex 전용 필드
     session_id: str | None = None
-    # session_id는 Claude와 기존 클라이언트를 위한 호환 필드다. Codex App
-    # Server의 공식 용어인 thread/turn id를 별도로 보존한다.
     thread_id: str | None = Field(default=None, alias="threadId")
     turn_id: str | None = Field(default=None, alias="turnId")
     resolved_model: str | None = Field(default=None, alias="resolvedModel")
@@ -38,14 +36,12 @@ class AgentRunResult(BaseModel):
     activity_items: list[ActivityItem] = Field(default_factory=list)
     usage: AgentUsage | None = None
     cost_usd: float | None = None
-
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
 @runtime_checkable
 class AgentAdapter(Protocol):
     async def find_latest_session(self, repo_path: Path) -> str | None:
-        """해당 저장소에 속한 가장 최근 세션 id. 없으면 None"""
-
+        """해당 저장소에 속한 가장 최근 세션 id"""
     async def resume_and_run(
         self,
         repo_path: Path,

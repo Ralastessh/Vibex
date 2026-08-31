@@ -1,9 +1,5 @@
-"""에이전트가 작업하기 전과 후의 Git 상태를 비교합니다.
-
-사용자가 원래 수정하던 내용까지 에이전트가 바꾼 것으로 표시하면 안 된다. 그래서 단순히
-수정 파일 이름만 보지 않고 커밋, 스테이징 영역, 실제 파일 내용을 같이 기록해 비교합니다.
-"""
-
+"""LLM이 작업하기 전후의 Git 상태를 비교
+수정 파일 이름만 보지 않고 커밋, 스테이징 영역, 실제 파일 내용을 같이 기록해 비교"""
 from __future__ import annotations
 import os
 import subprocess
@@ -39,7 +35,6 @@ class GitSnapshot:
     repo_path: Path
     branch: str
     tree: str
-    #: `git status --porcelain` 한 줄씩. "XY path" 형태.
     entries: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -51,18 +46,14 @@ class GitSnapshot:
         return bool(self.entries)
 
 def _path_of(entry: str) -> str:
-    """`XY path` 또는 `XY old -> new` 에서 경로를 뽑는다."""
+    """XY path 또는 XY old -> new에서 경로 추출"""
     body = entry[3:] if len(entry) > 3 else entry
     if " -> " in body:
         body = body.split(" -> ", 1)[1]
     return body.strip().strip('"')
 
 def snapshot(repo_path: Path) -> GitSnapshot:
-    """현재 커밋과 스테이징 영역, 실제 파일 상태를 한 번에 기록합니다.
-
-    아직 첫 커밋을 만들지 않은 저장소도 빈 저장소로 보고 처리한다. Git 저장소가 아닌
-    폴더가 들어오면 호출한 쪽에서 알아보기 쉽게 처리할 수 있도록 전용 오류를 냅니다.
-    """
+    """현재 커밋과 스테이징 영역, 실제 파일 상태를 한 번에 기록, 아직 첫 커밋을 만들지 않은 저장소도 빈 저장소로 보고 처리"""
     # branch와 커밋되지 않은 부분을 확인
     if not repo_path.is_dir():
         raise FileNotFoundError(f"저장소 경로가 없습니다: {repo_path}")
@@ -79,9 +70,8 @@ def snapshot(repo_path: Path) -> GitSnapshot:
         entries=entries,
     )
 
-
 def _working_tree(repo_path: Path) -> str:
-    """실제 index를 건드리지 않고 현재 작업 폴더 전체를 Git tree로 만든다."""
+    """현재 작업 폴더 전체를 Git tree로 생성"""
     with tempfile.TemporaryDirectory(prefix="vibex-git-index-") as directory:
         index = Path(directory) / "index"
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
@@ -114,11 +104,9 @@ class GitDelta:
 
 # 전후 변경사항
 def diff(before: GitSnapshot, after: GitSnapshot) -> GitDelta:
-    """두 기록을 비교해서 에이전트 작업 중에 생긴 변경만 찾습니다.
-
-    작업 전부터 수정 중이던 파일은 내용이 더 바뀐 경우에만 결과에 포함한다. 새 파일과
-    삭제한 파일, 브랜치 변경도 확인하고 나중에 되돌릴 때 쓸 패치도 함께 만듭니다.
-    """
+    """두 기록을 비교해서 LLM 작업 중에 생긴 변경만 탐색
+    작업 전부터 수정 중이던 파일은 사용자가 iPad에서 수정한 사항이 아님 -> 내용이 더 바뀐 경우(사용자가 추가 개입)에만 결과에 포함한다. 
+    새 파일과 삭제한 파일, 브랜치 변경을 확인하고 나중에 되돌릴 때 쓸 패치도 함께 추가"""
     if before.repo_path != after.repo_path:
         raise ValueError("서로 다른 저장소의 스냅샷은 비교할 수 없습니다.")
 
@@ -175,15 +163,14 @@ def diff(before: GitSnapshot, after: GitSnapshot) -> GitDelta:
 
 
 def reverse_patch(repo_path: Path, patch: str) -> None:
-    """후속 변경과 충돌하면 아무것도 건드리지 않고 안전하게 거부한다."""
+    """후속 변경과 충돌하면 아무것도 건드리지 않고 거부"""
     if not patch.strip():
         raise RuntimeError("되돌릴 파일 변경이 없습니다.")
     _git(repo_path, "apply", "--reverse", "--check", input_text=patch)
     _git(repo_path, "apply", "--reverse", input_text=patch)
 
-
 def read_tree_file(repo_path: Path, tree: str, path: str) -> bytes | None:
-    """스냅샷 tree의 파일 내용을 읽는다. 해당 시점에 없던 파일은 None."""
+    """스냅샷 트리의 파일 내용을 읽어오기"""
     relative = PurePosixPath(path)
     if not path or relative.is_absolute() or ".." in relative.parts:
         raise ValueError("리뷰 파일 경로가 올바르지 않습니다.")

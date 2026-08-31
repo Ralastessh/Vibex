@@ -1,4 +1,3 @@
-# XcodeGen 스펙. macOS에서: xcodegen generate → Vibex.xcodeproj 생성.
 name: Vibex
 options:
   bundleIdPrefix: com.hansangcharim
@@ -25,8 +24,8 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
-        # 서명 팀은 머신마다 다르므로 커밋하지 않는다.
-        # scripts/setup.sh 가 키체인에서 팀 ID를 찾아 Local.xcconfig 를 만든다.
+        # 서명 팀은 기기마다 다르므로 커밋하지 않음
+        # scripts/setup.sh 가 키체인에서 팀 ID를 찾아 Local.xcconfig 를 만듦
         DEVELOPMENT_TEAM: "$(VIBEX_DEVELOPMENT_TEAM)"
     configFiles:
       Debug: Local.xcconfig
@@ -43,6 +42,5 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # 개발용 http Bridge 허용(ATS). 실배포 전에 https로 좁힐 것.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

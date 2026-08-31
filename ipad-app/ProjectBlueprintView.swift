@@ -1,12 +1,9 @@
-// 새 프로젝트를 만들기 전에 화면 구성과 작업 흐름을 여러 장으로 그리는 화면입니다.
-// 작성한 페이지는 로컬에 임시 저장하며, 프로젝트가 만들어지면 이미지와 설명을 묶어서
-// 첫 번째 에이전트 작업으로 전송합니다.
-
+// 새 프로젝트를 만들기 전에 화면 구성과 작업 흐름을 여러 장으로 그리는 캔버스
 import PencilKit
 import PhotosUI
 import SwiftUI
 
-// MARK: - 새 프로젝트 드로우코딩 문서
+// MARK: - 새 프로젝트 드로잉코딩 문서
 
 enum BlueprintSectionKind: String, CaseIterable, Identifiable {
     case interface
@@ -53,9 +50,6 @@ enum BlueprintPaper: String, CaseIterable, Identifiable {
     }
 }
 
-/// 설계 문서 한 장의 내용과 PencilKit 캔버스를 함께 보관합니다.
-/// 캔버스는 값 타입으로 다시 만들면 실행 취소 기록이 사라질 수 있어서 페이지가 살아 있는
-/// 동안 같은 인스턴스를 계속 사용합니다.
 @MainActor
 final class BlueprintPageDraft: ObservableObject, Identifiable {
     let id: UUID
@@ -106,16 +100,14 @@ private struct StoredBlueprintPage: Codable {
     let backgroundImage: Data?
 }
 
-/// 한 프로젝트의 화면 구성과 작업 흐름, 참고 사항을 하나의 문서 묶음으로 보관합니다.
-/// 설계 문서는 대화마다 따로 저장하므로 새 대화를 열었을 때 이전 그림이 섞이지 않습니다.
+/// 한 프로젝트의 화면 구성과 작업 흐름, 참고 사항을 하나의 문서 묶음으로 보관
 @MainActor
 private final class ProjectBlueprintWorkspace: ObservableObject {
     @Published private(set) var pages: [BlueprintPageDraft]
     private let storageKey: String
 
     init(projectId: String, conversationId: String) {
-        // 설계 문서는 프로젝트가 아닌 대화 단위로 분리한다. 새 대화 ID에는
-        // 저장 데이터가 없으므로 기본 세 페이지 모두 빈 캔버스로 시작한다.
+        // 설계 문서는 프로젝트가 아닌 대화 단위로 분리. 새 대화 ID에는 저장 데이터가 없으므로 기본 세 페이지 모두 빈 캔버스로 시작
         storageKey = "vibex.project-blueprint.\(projectId).\(conversationId)"
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let stored = try? JSONDecoder().decode([StoredBlueprintPage].self, from: data) {
@@ -240,8 +232,6 @@ struct ProjectWorkspaceView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                // 페이지 종류와 무관하게 같은 프로젝트의 PC 프리뷰를 열 수 있다.
-                // 워크플로·기타사항을 작업하다가도 프리뷰에 바로 주석을 남긴다.
                 Toggle("프리뷰", isOn: $previewEnabled)
                     .labelsHidden()
             }
@@ -429,8 +419,6 @@ struct ProjectWorkspaceView: View {
     }
 }
 
-/// UI·레이아웃에서만 켤 수 있는 실제 PC 프론트엔드 작업면.
-/// 프로젝트 진입 시 사용자가 고른 대화 ID를 그대로 사용한다.
 private struct ProjectLivePreviewView: View {
     @ObservedObject var model: AppModel
     let project: ProjectView
@@ -712,8 +700,6 @@ private struct BlueprintDocumentEditor: View {
 
     var body: some View {
         GeometryReader { editorGeometry in
-            // 페이지 목록은 세로 모드나 좌측 앱 사이드바의 표시 여부와 관계없이
-            // 사용자가 직접 열고 닫는다. 열리면 HStack이 본문 폭을 자동 축소한다.
             let railIsVisible = pageRailVisible && alternateMain == nil
             let railWidth = min(210, max(156, editorGeometry.size.width * 0.23))
 
@@ -735,9 +721,6 @@ private struct BlueprintDocumentEditor: View {
                     }
                     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
 
-                    // 좌측 앱 사이드바가 열린 세로 모드에서는 중앙 편집면을
-                    // 가리지 않도록 페이지 레일을 자동으로 접는다. 폭이 다시 넓어지면
-                    // 사용자의 열림 상태를 기억해 레일을 다시 보여준다.
                     if railIsVisible {
                         Divider()
 
@@ -812,8 +795,6 @@ private struct BlueprintDocumentEditor: View {
 
     private var continuousPages: some View {
         GeometryReader { geometry in
-            // 페이지의 논리 좌표계는 고정하고, 사이드바가 차지한 폭만큼 표시만
-            // 축소한다. 기존 PKDrawing 좌표를 잘라내지 않고 페이지 전체가 작아진다.
             let availableWidth = max(1, geometry.size.width - 32)
             let pageWidth = max(820, expandedPageWidth)
             let pageHeight = max(620, pageWidth * 0.72)
@@ -827,7 +808,6 @@ private struct BlueprintDocumentEditor: View {
                 : .vertical
 
             ScrollView(scrollAxes) {
-                // PDF의 연속 보기처럼 페이지 바깥 여백 없이 바로 이어 붙인다.
                 LazyVStack(spacing: 0) {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
                         BlueprintDocumentPage(
@@ -863,8 +843,6 @@ private struct BlueprintDocumentEditor: View {
             }
             .coordinateSpace(name: "blueprint-page-scroll")
             .onPreferenceChange(BlueprintPagePositionPreferenceKey.self) { positions in
-                // 화면 중앙을 가장 많이 차지하는 페이지를 현재 페이지로 본다.
-                // 우측 페이지 테두리와 종이 설정 Picker가 손가락 스크롤을 따라간다.
                 let viewportCenter = geometry.size.height / 2
                 guard let visible = positions.min(by: {
                     abs($0.value - viewportCenter) < abs($1.value - viewportCenter)
@@ -872,7 +850,6 @@ private struct BlueprintDocumentEditor: View {
                       visible != selectedPageId else { return }
                 selectedPageId = visible
             }
-            // 손가락을 끝까지 밀어도 문서 모서리 바깥의 빈 영역이 드러나지 않는다.
             .background(ScrollBounceConfigurator())
             .simultaneousGesture(
                 MagnificationGesture()
@@ -902,8 +879,6 @@ private struct BlueprintDocumentEditor: View {
     }
 
     private func rememberExpandedPageWidth(_ availableWidth: CGFloat) {
-        // 접힌 상태의 최대 폭을 페이지의 고정 논리 폭으로 삼는다. 사이드바를
-        // 다시 열면 이 폭을 유지한 채 페이지 전체를 남은 공간에 맞춰 축소한다.
         guard !pageRailVisible else { return }
         expandedPageWidth = max(expandedPageWidth, availableWidth)
     }
@@ -934,8 +909,6 @@ private struct BlueprintPagePositionPreferenceKey: PreferenceKey {
     }
 }
 
-/// SwiftUI `ScrollView`의 기본 고무줄 효과를 끈다. 스크롤 자체는 유지하되
-/// 콘텐츠의 좌우·상하 끝을 넘어 빈 배경까지 끌려오는 현상만 막는다.
 private struct ScrollBounceConfigurator: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
@@ -954,8 +927,6 @@ private struct ScrollBounceConfigurator: UIViewRepresentable {
                 if let scrollView = current as? UIScrollView {
                     scrollView.bounces = false
                     scrollView.alwaysBounceHorizontal = false
-                    // 문서 이동은 손가락만 담당한다. Apple Pencil을 허용하면
-                    // 바깥 ScrollView의 pan이 PKCanvasView의 획을 취소한다.
                     scrollView.panGestureRecognizer.allowedTouchTypes = [
                         NSNumber(value: UITouch.TouchType.direct.rawValue)
                     ]
@@ -1004,8 +975,6 @@ private struct BlueprintDocumentPage: View {
                 PencilCanvas(
                     canvasView: page.canvasView,
                     tool: tool,
-                    // 실제 기기에서는 Apple Pencil만 그린다. 모든 손가락 입력은
-                    // 바깥 문서 ScrollView의 이동·핀치 확대에 사용한다.
                     allowFingerDrawing: false,
                     isActive: true
                 )

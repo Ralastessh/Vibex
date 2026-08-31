@@ -14,7 +14,7 @@ fi
 
 echo "Vibex iPad 앱 경로: $IPAD_DIR"
 
-# Apple Development 인증서에서 Team ID를 찾는다.
+# Apple Development 인증서에서 Team ID 검색
 TEAM="$(
   security find-identity -v -p codesigning 2>/dev/null |
     sed -n 's/.*"Apple Develop.*(\([A-Z0-9]\{10\}\))".*/\1/p' |
@@ -37,7 +37,7 @@ else
   echo "로그인 후 이 스크립트를 다시 실행하세요."
 fi
 
-# XcodeGen이 있으면 현재 머신의 설정을 반영하여 프로젝트를 재생성한다.
+# XcodeGen이 있으면 현재 기기의 설정을 반영하여 프로젝트를 재생성
 if [ -f "$IPAD_DIR/project.yml" ]; then
   if command -v xcodegen >/dev/null 2>&1; then
     (

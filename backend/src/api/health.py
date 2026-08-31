@@ -1,8 +1,4 @@
-"""서버가 살아 있는지 확인하고 접속 가능한 Tailscale 기기를 찾습니다.
-
-로그인 전에도 호출하는 API라서 연결 확인에 꼭 필요한 정보만 응답한다. 서버 토큰이나
-프로젝트 경로처럼 밖으로 나가면 안 되는 값은 절대 넣지 않습니다.
-"""
+"""서버가 살아 있는지 확인하고 접속 가능한 Tailscale 기기 탐색"""
 
 from __future__ import annotations
 import json
@@ -26,7 +22,6 @@ def health(request: Request) -> dict[str, object]:
         "projects": len(registry.list_enabled()),
     }
 
-
 def _tailscale_binary() -> str | None:
     configured = os.getenv("BRIDGE_TAILSCALE_BINARY", "").strip()
     candidates = [
@@ -37,7 +32,6 @@ def _tailscale_binary() -> str | None:
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     ]
     return next((item for item in candidates if item and Path(item).is_file()), None)
-
 
 def _online_tailscale_devices() -> list[dict[str, object]]:
     binary = _tailscale_binary()
@@ -73,9 +67,8 @@ def _online_tailscale_devices() -> list[dict[str, object]]:
         })
     return devices
 
-
 def tailscale_self_dns_name() -> str | None:
-    """현재 Mac의 정식 MagicDNS FQDN. 조회 실패 시 로컬 기능은 유지한다."""
+    """Mac의 정식 MagicDNS FQDN. 조회 실패 시 로컬 기능은 유지"""
     try:
         return next(
             (
@@ -91,7 +84,7 @@ def tailscale_self_dns_name() -> str | None:
 
 @router.get("/tailscale/devices", dependencies=[RequireDevice])
 def tailscale_devices() -> dict[str, object]:
-    """현재 tailnet의 온라인 PC 후보. iPad가 각 후보의 health를 다시 확인한다."""
+    """tailnet의 온라인 PC 목록. iPad가 각 목록의 health가 정상인지 다시 확인"""
     try:
         return {"devices": _online_tailscale_devices()}
     except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):

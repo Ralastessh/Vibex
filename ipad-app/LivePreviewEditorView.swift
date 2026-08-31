@@ -1,5 +1,5 @@
-// PC에서 실행 중인 웹 화면을 iPad에서 조작하고 그 위에 주석을 그리는 화면입니다.
-// 웹 화면, PencilKit 캔버스, 질문 위치 표시가 같은 좌표계를 사용해야 정확한 위치가 전달됩니다.
+// PC에서 실행 중인 웹 화면을 iPad에서 조작하고 그 위에 주석을 그리는 화면
+// 웹 화면, PencilKit 캔버스, 질문 위치 표시가 같은 좌표계를 사용해야 정확한 위치가 전달 됨
 
 import PencilKit
 import Foundation
@@ -276,8 +276,7 @@ struct LivePreviewEditorView: View {
         guard !questions.isEmpty else { return }
         let visibleQuestions = questions
         Task { @MainActor in
-            // WKWebView의 CSS viewport는 SwiftUI 회전 레이아웃보다 한 박자 늦게
-            // 갱신될 수 있어 두 번 측정한다.
+            // WKWebView의 CSS viewport는 SwiftUI 회전 레이아웃보다 한 박자 늦게 갱신될 수 있어 두 번 측정
             try? await Task.sleep(nanoseconds: 120_000_000)
             await refreshResolvedOverlayFrames(for: visibleQuestions)
             try? await Task.sleep(nanoseconds: 280_000_000)
@@ -361,7 +360,7 @@ struct LivePreviewEditorView: View {
                 errorMessage = error.localizedDescription
                 return
             }
-            // CLI 완료 직후 PC WebView와 거의 같은 시점에 결과가 보이도록 한다.
+            // CLI 완료 직후 PC WebView와 같은 시점에 결과가 보이도록 함
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
@@ -461,8 +460,7 @@ private extension WKWebView {
         }
     }
 
-    /// LLM이 이미지에서 지정한 사각형 아래의 실제 DOM 요소를 찾아 앵커로 보관한다.
-    /// 이후 반응형 레이아웃이 바뀌어도 같은 요소의 새 DOMRect에서 영역을 복원한다.
+    /// LLM이 이미지에서 지정한 사각형 아래의 실제 DOM 요소를 찾아 앵커로 보관 -> 반응형 레이아웃이 바뀌어도 같은 요소의 새 DOMRect에서 영역을 복원
     @MainActor
     func resolveOverlayAnchor(id: String, target: OverlayTarget) async throws -> CGRect {
         let marker = try Self.javaScriptLiteral(id)

@@ -1,6 +1,4 @@
-// 손으로 그린 점들을 사각형, 원, 삼각형, 직선 같은 반듯한 도형으로 바꿉니다.
-// 짧거나 모양이 애매한 획은 억지로 바꾸지 않고 인식 실패로 돌려줍니다.
-
+// 손으로 그린 점들을 사각형, 원, 삼각형, 직선 같은 반듯한 도형으로 변환
 import CoreGraphics
 import Foundation
 
@@ -22,8 +20,6 @@ enum ShapeSnap {
     private static let edgeSamples = 12
     private static let ellipseSamples = 60
 
-    /// 점 목록을 도형으로 스냅.
-    //  인식 실패 시 nil.
     static func snap(_ points: [CGPoint]) -> SnappedShape? {
         guard points.count >= 8 else { return nil }
 
@@ -38,14 +34,14 @@ enum ShapeSnap {
         let w = maxX - minX
         let h = maxY - minY
         let diag = hypot(w, h)
-        guard diag >= 40 else { return nil } // 너무 작으면 도형으로 보지 않음
+        guard diag >= 40 else { return nil }
 
         let first = points.first!
         let last = points.last!
         let gap = hypot(last.x - first.x, last.y - first.y)
         let closed = gap < 0.33 * max(w, h)
 
-        // ── 열린 획: 직선인가 ──────────────────────────────
+        // 직선 여부
         if !closed {
             let lineLen = hypot(last.x - first.x, last.y - first.y)
             var maxDev: CGFloat = 0
@@ -62,9 +58,7 @@ enum ShapeSnap {
         let ry = h / 2
         let squareish = abs(w - h) / max(w, h) < 0.18
 
-        // ── 타원 / 원 검사 ────────────────────────────────
-        // 정규화 반경 평균은 원·타원이 ≈1.0, 사각형이 ≈1.15. mean으로 사각형을
-        // 걸러내고 std(떨림)는 넉넉히 둬서 손으로 대충 그린 원도 잡는다.
+        // 타원 여부
         if rx > 4 && ry > 4 {
             var sum: CGFloat = 0
             var sum2: CGFloat = 0
@@ -85,7 +79,7 @@ enum ShapeSnap {
             }
         }
 
-        // ── 코너 검사 (RDP) ───────────────────────────────
+        // 코너 검사
         var corners = rdp(points, 0.06 * diag)
         // 닫힘으로 인한 시작=끝 중복 제거
         if corners.count > 1,
@@ -107,7 +101,6 @@ enum ShapeSnap {
             return SnappedShape(kind: .triangle, outline: polygonPoints(merged))
         }
         if merged.count == 4 {
-            // 직사각형 → 축 정렬 bbox. 정사각형에 가까우면 정사각형.
             var x0 = minX, y0 = minY, x1 = maxX, y1 = maxY
             var kind = ShapeKind.rectangle
             if squareish {
@@ -123,10 +116,9 @@ enum ShapeSnap {
             return SnappedShape(kind: kind, outline: polygonPoints(rect))
         }
 
-        return nil // 인식 실패 → 원래 자유곡선을 그대로 둔다
+        return nil
     }
 
-    /// `꼬리 → 끝 → 날개 → 끝 → 반대 날개`로 이어 그린 한 획 화살표.
     static func snapArrow(_ points: [CGPoint]) -> SnappedArrow? {
         guard let bounds = metrics(points), bounds.diag >= 40 else { return nil }
         let simplified = rdp(points, 0.035 * bounds.diag)
@@ -156,7 +148,6 @@ enum ShapeSnap {
         return SnappedArrow(from: tail, to: tip)
     }
 
-    /// `직선 한 획 + V자 화살촉 한 획`을 하나의 화살표로 합친다.
     static func snapArrow(shaft: [CGPoint], head: [CGPoint]) -> SnappedArrow? {
         guard shaft.count >= 2, head.count >= 3 else { return nil }
         let shaftStart = shaft.first!
@@ -189,7 +180,6 @@ enum ShapeSnap {
         return SnappedArrow(from: tail, to: tip)
     }
 
-    /// 직선 화살표 아웃라인(샤프트 + 화살촉). a→b 방향, 단일 폴리라인으로 그림.
     static func arrow(from a: CGPoint, to b: CGPoint) -> [CGPoint] {
         let dx = b.x - a.x, dy = b.y - a.y
         let len = hypot(dx, dy)
@@ -197,15 +187,12 @@ enum ShapeSnap {
         let ux = dx / len, uy = dy / len
         let head = min(max(len * 0.22, 12), 30)
         let c = cos(CGFloat.pi / 7), s = sin(CGFloat.pi / 7) // ≈25.7°
-        // 끝점에서 ±각도로 뻗은 두 갈래. a→b→b1→b→b2 한 획으로 그린다.
         let b1 = CGPoint(x: b.x - head * (ux * c - uy * s), y: b.y - head * (uy * c + ux * s))
         let b2 = CGPoint(x: b.x - head * (ux * c + uy * s), y: b.y - head * (uy * c - ux * s))
         return densify([a, b, b1, b, b2])
     }
 
-    // MARK: - 기하 헬퍼
 
-    /// 꼭짓점 사이를 촘촘한 점으로 채운 열린 폴리라인.
     private static func densify(_ corners: [CGPoint]) -> [CGPoint] {
         guard corners.count >= 2 else { return corners }
         var out: [CGPoint] = []
@@ -247,7 +234,6 @@ enum ShapeSnap {
         let backLength = max(hypot(back.x, back.y), 0.001)
         let cosine1 = (back.x * wing1.x + back.y * wing1.y) / (backLength * firstLength)
         let cosine2 = (back.x * wing2.x + back.y * wing2.y) / (backLength * secondLength)
-        // 화살촉은 샤프트의 뒤쪽을 향하면서 양쪽에 하나씩 있어야 한다.
         guard cosine1 > 0.3, cosine2 > 0.3, cosine1 < 0.99, cosine2 < 0.99 else { return false }
         let cross1 = back.x * wing1.y - back.y * wing1.x
         let cross2 = back.x * wing2.y - back.y * wing2.x
@@ -270,7 +256,7 @@ enum ShapeSnap {
         return (hypot(width, height), width, height)
     }
 
-    /// Ramer–Douglas–Peucker 단순화
+
     private static func rdp(_ pts: [CGPoint], _ eps: CGFloat) -> [CGPoint] {
         guard pts.count >= 3 else { return pts }
         var maxD: CGFloat = 0

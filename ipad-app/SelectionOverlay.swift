@@ -1,6 +1,3 @@
-// PencilKit 획을 올가미로 골라 이동하거나 크기를 바꾸고 삭제하는 화면입니다.
-// PencilKit 기본 올가미는 선택된 획을 알려 주지 않아서 선택 판정과 변환을 직접 처리합니다.
-
 import PencilKit
 import SwiftUI
 
@@ -135,7 +132,7 @@ struct SelectionOverlay: View {
         lasso = [point]
     }
 
-    // MARK: 선택 박스 · 핸들
+    // MARK: 선택 박스
 
     private var boxRect: CGRect? {
         _ = tick
@@ -185,7 +182,6 @@ struct SelectionOverlay: View {
         applyTransform(m)
     }
 
-    /// 고정점에서 최소 크기 아래로는 줄지 않고, 반대편으로 뒤집히지도 않게 막는다.
     private func clamp(_ v: CGFloat, anchor a: CGFloat, ref: CGFloat) -> CGFloat {
         let dir: CGFloat = ref >= 0 ? 1 : -1
         var d = v - a
@@ -206,7 +202,7 @@ struct SelectionOverlay: View {
 
     private func commit(actionName: String) {
         let changed = canvasView.drawing
-        canvasView.drawing = PKDrawing(strokes: baseStrokes) // 변형 전으로 되돌린 뒤
+        canvasView.drawing = PKDrawing(strokes: baseStrokes)
         canvasView.setDrawingUndoably(changed, actionName: actionName)
     }
 

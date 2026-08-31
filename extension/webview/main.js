@@ -225,7 +225,7 @@ textarea.addEventListener("keydown", (event) => {
 
 // #region Input decorations (`/명령`·`@파일` 토큰 색 + 첨부 칩)
 
-/** 완성 수락·검색 결과로 실존이 확인된 파일들. 경로 → {name, relativePath} */
+/** 완성 수락·검색 결과로 실존이 확인된 파일들. 경로 -> {name, relativePath} */
 const knownFiles = new Map();
 
 function rememberFile(file) {
@@ -826,7 +826,7 @@ function responseRow(task, { isLast }) {
     value.append(label);
   }
 
-  // Clarification turns (question → answer) in original order.
+  // Clarification turns (question -> answer) in original order.
   for (const clarification of task.clarificationTurns || []) {
     const reply = (clarification.assistantReply || clarification.question?.text || "").trim();
     if (reply) value.append(renderMarkdown(reply));

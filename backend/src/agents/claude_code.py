@@ -1,10 +1,4 @@
-# LLM 에이전트 중 Claude Code와의 호환성 검증용
-"""Claude Code를 실행하고 그 결과를 백엔드에서 쓰는 형태로 바꿔 줍니다.
-
-이전 세션을 찾는 일부터 명령어 옵션을 만드는 일, 시간 초과나 권한 오류를 처리하는
-일까지 여기서 맡습니다.
-"""
-
+"""Claude Code를 실행하고 그 결과를 백엔드로 전송하는 과정, 세션 탐색과 시간 초과 혹은 권한 오류를 처리"""
 from __future__ import annotations
 import asyncio
 import json
@@ -16,12 +10,10 @@ from src.agents.base import AgentRunResult, ProgressCallback
 from src.agents.contract import ContractError, extract
 from src.tasks.models import AgentUsage, ApprovalMode
 
-# 로깅용
 logger = logging.getLogger("src.agents.claude")
 
 SESSIONS_ROOT = Path.home() / ".claude" / "projects"
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
-
 
 async def _stop_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
@@ -40,13 +32,9 @@ async def _stop_process(process: asyncio.subprocess.Process) -> None:
 def session_dir_for(repo_path: Path) -> Path:
     return SESSIONS_ROOT / _NON_ALNUM.sub("-", str(repo_path.resolve()))
 
-# Claude Code 전용 어뎁터 클래스
+# Claude Code 전용 클래스
 class ClaudeCodeAdapter:
-    """Claude Code 프로세스를 실행하는 어댑터입니다.
-
-    요청받은 권한만 명령어 옵션에 넣는다. 프로젝트에 테스트 명령이 없다면 Bash 권한도
-    굳이 열어 주지 않습니다. 실행 결과는 성공이든 실패든 AgentRunResult로 돌려줍니다.
-    """
+    """Claude Code 프로세스 실행 어뎁터, 실행 결과는 AgentRunResult로 돌려줌"""
     def __init__(
         self,
         binary: str = "claude",
@@ -122,7 +110,7 @@ class ClaudeCodeAdapter:
         approval_mode: ApprovalMode = "default",
         on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
-        del speed_mode, on_progress  # Claude JSON 출력에는 부분 이벤트가 없다.
+        del speed_mode, on_progress
         if shutil.which(self._binary) is None and not Path(self._binary).exists():
             return AgentRunResult(
                 error=f"Claude Code 실행 파일을 찾을 수 없습니다: {self._binary}"
@@ -140,7 +128,6 @@ class ClaudeCodeAdapter:
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=repo_path,
-            # stdin이 열려 있으면 경고 한 줄이 stdout 앞에 붙음
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

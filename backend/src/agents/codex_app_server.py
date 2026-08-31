@@ -1,9 +1,4 @@
-"""Codex app-server 프로세스와 JSON 메시지를 주고받는 부분입니다.
-
-보낸 요청과 받은 답을 ID로 맞추고, 응답 제한 시간을 확인한다. 프로세스 오류 메시지를
-모으거나 종료하는 일도 여기서 처리합니다.
-"""
-
+"""Codex app-server 프로세스와 JSON 메시지를 주고받는 부분, 요청과 답변을 ID로 맞추고, 응답 시간이나 오류를 처리"""
 from __future__ import annotations
 
 import asyncio
@@ -14,31 +9,22 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-
 APP_SERVER_STREAM_LIMIT = 32 * 1024 * 1024
-
 
 class CodexAppServerError(RuntimeError):
     """App Server가 요청을 거절했거나 올바른 응답을 보내지 못했다."""
 
-
 class CodexAppServerUnavailable(CodexAppServerError):
     """Codex 실행 파일을 찾지 못했거나 App Server를 시작하지 못했다."""
-
 
 def error_text(error: Any) -> str:
     if isinstance(error, dict):
         return str(error.get("message") or error.get("data") or error)
     return str(error)
 
-
 class CodexAppServerClient:
-    """한 App Server stdio 연결의 handshake·request·event 수명을 관리한다.
-
-    목록/읽기 같은 one-shot 요청과 실제 turn 실행이 같은 JSONL 구현을 사용해야
-    프로토콜 한도, 오류 처리, 초기화 순서가 서로 달라지지 않는다.
-    """
-
+    """App Server stdio 연결 사이클 관리.
+    목록 혹은 읽기 요청과 실제 턴 실행이 같은 JSONL 구현 -> 프로토콜 한도, 오류 처리, 초기화 순서가 변하지 않도록 함"""
     def __init__(
         self,
         command: list[str],

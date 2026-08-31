@@ -1,15 +1,11 @@
-// 백엔드에서 보내는 작업 상태를 WebSocket으로 받는 코드입니다.
-// 현재 화면은 폴링을 주로 사용하지만, 실시간 갱신으로 바꿀 때 사용할 수 있도록 남겨 둡니다.
-
+// 백엔드에서 보내는 작업 상태를 WebSocket으로 받음
 import Foundation
 
-// TODO: 이벤트 페이로드 형태 백엔드와 확인.
 final class EventStream {
     private let url: URL?
     private var task: URLSessionWebSocketTask?
     private var running = false
 
-    // ping은 걸러서 전달하지 않는다.
     var onEvent: (([String: Any]) -> Void)?
 
     init(baseURL: URL) {
@@ -44,7 +40,7 @@ final class EventStream {
                 self.handle(message)
                 self.receive()
             case .failure:
-                // 끊기면 재연결.
+                // 끊기면 재연결
                 self.task = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                     if self?.running == true { self?.start() }

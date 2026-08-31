@@ -1,5 +1,4 @@
-"""사용자가 보낸 글이나 그림, 질문에 대한 답을 에이전트용 요청문으로 만듭니다."""
-
+"""사용자가 보낸 글이나 그림, 질문에 대한 답을 에이전트용 요청문으로 만듦"""
 from __future__ import annotations
 from src.agents.contract import OUTPUT_CONTRACT, output_contract
 
@@ -15,7 +14,6 @@ _SESSION_CONTEXT = (
     "이미지 해석도 그 로컬 세션 안에서 수행한다."
 )
 
-
 def build(
     requests: list[str],
     *,
@@ -24,12 +22,7 @@ def build(
     test_commands: list[str] | None = None,
     origin: str = "ipad",
 ) -> str:
-    """작업 프롬프트를 제작
-    test_commands가 비어 있으면 테스트 실행을 지시하지 않음. 실행할 수 없는 것을
-    지시하면 모델이 권한 거부에 부딪히거나 결과를 지어냄.
-    """
-    # 실제 resume/new 결정은 실행 직전에 runner가 한다. 프롬프트를 먼저 만든 뒤
-    # 다른 세션이 생겨도 설명이 거짓이 되지 않도록 중립적으로 표현한다.
+    """작업 프롬프트를 제작 시 test_commands가 비어 있으면 테스트 실행 무시하여 안정성 높이기"""
     del resumed
     lines = [_SESSION_CONTEXT, ""]
 
@@ -55,7 +48,6 @@ def build(
 
 
 def build_answer(question_text: str, answer_label: str) -> str:
-    """§14 — iPad에서 고른 답을 세션에 전달한다."""
     return "\n".join(
         [
             "이전 질문에 대한 사용자의 답이다.",
@@ -69,16 +61,9 @@ def build_answer(question_text: str, answer_label: str) -> str:
         ]
     )
 
-
 def build_text(user_message: str) -> str:
-    """일반 채팅은 사용자가 쓴 문장을 코드 작업 계약으로 감싸지 않는다.
-
-    Codex/Claude 자체가 명시적인 수정 요청은 에이전트 작업으로 처리한다. 반대로
-    인사·질문·설명 요청에는 파일 탐색, 수정, 테스트, bridge JSON을 강제하지 않아
-    평범한 채팅처럼 짧게 답할 수 있다. 구조화 계약은 iPad 드로잉 흐름에만 둔다.
-    """
+    """일반 채팅은 사용자가 쓴 문장을 코드 작업 규칙으로 감싸지 않음"""
     return user_message.strip()
-
 
 def build_visual(
     *,
@@ -86,7 +71,7 @@ def build_visual(
     test_commands: list[str] | None,
     latency_optimized: bool = False,
 ) -> str:
-    """라이브 프론트엔드 렌더와 드로잉을 CLI가 직접 해석하도록 지시한다."""
+    """iPad 앱에서 실시간 프론트엔드 렌더와 드로잉을 LLM이 직접 해석하도록 지시"""
     request = (
         "첨부 이미지 1은 iPad에서 실제로 동작 중인 프론트엔드의 현재 렌더이고, "
         "이미지 2는 같은 좌표계에 그린 투명 주석 레이어다. 두 이미지를 겹쳐서 "

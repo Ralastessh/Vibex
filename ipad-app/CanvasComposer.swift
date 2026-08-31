@@ -1,17 +1,10 @@
-// 사용자가 보고 있는 화면과 그 위에 그린 획을 서버에 보낼 이미지로 만듭니다.
-// 두 이미지는 서버에서 다시 겹쳐 볼 수 있도록 크기와 좌표계를 똑같이 유지해야 합니다.
-
+// iPad 앱 화면과 그 위에 그린 그림을 서버에 보낼 이미지로 생성
+// 두 이미지는 각각 전송되지만 서버에서 다시 겹쳐 볼 수 있도록 크기와 좌표계를 똑같이 유지
 import PencilKit
 import UIKit
 
-/// 실제 WKWebView 렌더와 손그림 주석을 이미지로 내보낸다.
-///
-/// 서버는 렌더(`renderedViewImage`)와 획(`canvasImage`)을 **따로** 저장한 뒤
-/// 선택된 PC LLM CLI 세션에 직접 첨부한다. 두 장은 같은 좌표계·픽셀 크기다.
+/// WKWebView 렌더와 손그림 주석을 이미지로 내보냄
 enum CanvasComposer {
-
-    /// 업로드 한 장의 최대 변(픽셀). 서버 상한은 넉넉하지만, 큰 이미지는
-    /// 업로드가 느려지고 해석 토큰만 늘 뿐 정확도에 도움이 되지 않는다.
     static let maxPixelDimension: CGFloat = 2048
 
     struct ImagePayload {
@@ -20,14 +13,14 @@ enum CanvasComposer {
         let filename: String
     }
 
-    /// 서버로 보낼 두 장. 같은 rect를 같은 배율로 렌더한 결과다.
+    /// 서버로 보낼 두 장의 이미지, 같은 rect를 같은 배율로 렌더링
     struct Snapshot {
-        let canvas: ImagePayload        // 획만. 투명 배경 PNG.
-        let base: ImagePayload?         // 현재 라이브 렌더. 전송 순간 자동 캡처.
+        let canvas: ImagePayload        // 그림
+        let base: ImagePayload?         // 현재 화면
         let pixelSize: CGSize
     }
 
-    /// 새 프로젝트를 시작할 때 사용하는 한 페이지의 드로우코딩 자료.
+    /// 새 프로젝트를 생성할 때 사용하는 캔버스
     struct BlueprintPage {
         let title: String
         let purpose: String
@@ -40,11 +33,6 @@ enum CanvasComposer {
 
     // MARK: - 전송용
 
-    /// - Parameters:
-    ///   - canvasBounds: `PKCanvasView.bounds`. 레이아웃에서 역산하지 말 것 —
-    ///     안전영역 확장 때문에 캔버스와 어긋나 하단 획이 잘린다.
-    ///   - displayScale: `@Environment(\.displayScale)`. `UIScreen.main`은
-    ///     분할 화면·외부 디스플레이에서 틀린 값을 준다.
     static func snapshot(
         background: UIImage?,
         drawing: PKDrawing,
@@ -56,14 +44,14 @@ enum CanvasComposer {
 
         let scale = outputScale(for: size, displayScale: displayScale)
 
-        // 획 — 배경 없이. PKDrawing이 칠하지 않은 곳은 투명하게 남는다.
+        // 그림을 투명하게 만듦
         let strokes = drawing.image(from: canvasBounds, scale: scale)
         guard let canvasData = strokes.pngData() else { return nil }
         let canvas = ImagePayload(
             data: canvasData, mimeType: "image/png", filename: "canvas.png"
         )
 
-        // 배경 — 화면에 보이는 것과 같은 크롭. 사진에 가까우므로 JPEG가 훨씬 작다.
+        // 배경을 화면에 보이는 것과 같이 크롭
         var base: ImagePayload?
         if let background {
             let image = renderer(size: size, scale: scale, opaque: true).image { _ in
@@ -83,8 +71,7 @@ enum CanvasComposer {
         )
     }
 
-    /// UI 설계·워크플로·특이사항 페이지를 같은 좌표계의 두 이미지로 묶는다.
-    /// 배경에는 페이지 제목과 종이 구조, canvas에는 Apple Pencil 획만 들어간다.
+    /// UI 설계·워크플로·특이사항 페이지를 같은 좌표계의 두 이미지로 묶기
     static func blueprintSnapshot(
         pages: [BlueprintPage], displayScale: CGFloat
     ) -> Snapshot? {
@@ -130,8 +117,6 @@ enum CanvasComposer {
 
     // MARK: - 미리보기·저장용
 
-    /// 배경과 획을 한 장으로 합친다. 화면 미리보기나 로컬 저장에 쓴다.
-    /// 서버 전송에는 쓰지 말 것 — 렌더와 획을 분리하는 `snapshot(...)`을 쓴다.
     static func compose(
         background: UIImage,
         drawing: PKDrawing,
@@ -232,9 +217,8 @@ enum CanvasComposer {
         context.restoreGState()
     }
 
-    /// 비율을 유지하며 rect를 꽉 채우도록 그린다.
-    /// SwiftUI 쪽 `.aspectRatio(contentMode: .fill)` + `.clipped()`와 같은 결과여야
-    /// 화면에서 본 것과 서버로 간 것이 일치한다.
+    /// 비율을 유지하며 rect를 꽉 채우도록 그림
+    /// SwiftUI 쪽 `.aspectRatio(contentMode: .fill)` + `.clipped()`와 같은 결과여야 화면에서 본 것과 서버로 간 것이 일치
     private static func drawAspectFill(_ image: UIImage, in rect: CGRect) {
         let imageSize = image.size
         guard imageSize.width > 0, imageSize.height > 0 else {

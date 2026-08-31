@@ -1,9 +1,5 @@
-"""에이전트 답변 끝에 붙는 VIBEX 결과 블록을 만들고 읽습니다.
-
-사용자에게 보여 줄 글과 백엔드가 읽어야 하는 작업 상태를 나누기 위한 형식입니다.
-결과 블록이 깨졌다면 완료로 넘기지 않고 오류로 처리합니다.
-"""
-
+"""LLM 답변 끝에 붙는 VIBEX 결과 블록 생성 및 읽기
+UI/UX를 위하여 iPad를 사용하는 사용자에게 보여 줄 텍스트와 백엔드가 읽어야 하는 작업 상태를 나눔"""
 from __future__ import annotations
 import json
 import re
@@ -12,7 +8,7 @@ from src.tasks.models import ChangedFile, Question, TestResult
 
 FENCE = "bridge"
 
-
+# LLM한테 보내는 명령 양식
 def output_contract(*, origin: str = "ipad") -> str:
     """클라이언트에 맞는 구조화 출력 계약을 만든다.
 
@@ -55,13 +51,10 @@ def output_contract(*, origin: str = "ipad") -> str:
 }}
 ```"""
 
-
-# 기존 iPad/테스트 호출부의 호환 상수. VS Code는 output_contract(origin="vscode")를 쓴다.
 OUTPUT_CONTRACT = output_contract(origin="ipad")
 
 _BLOCK = re.compile(rf"```{FENCE}\s*(.*?)```", re.S)
 _BLOCK_START = re.compile(rf"(?:^|\n)```{FENCE}(?:\s|$)")
-
 
 class AgentReport(BaseModel):
     status: str = "completed"
@@ -80,17 +73,14 @@ class AgentReport(BaseModel):
 
 
 class ContractError(ValueError):
-    """에이전트가 계약을 지키지 않을 때 결과를 지어내지 않고 실패로 처리"""
+    """에이전트가 규칙을 어긴다면 실패로 처리"""
 
 def without_block(result_text: str) -> str:
     text = _BLOCK.sub("", result_text or "")
-    # 스트리밍 도중에는 닫는 fence가 아직 오지 않을 수 있다. 내부 계약 JSON이
-    # 잠깐 사용자 화면에 나타났다 사라지지 않도록 시작 fence부터 감춘다.
     start = _BLOCK_START.search(text)
     if start is not None:
         text = text[: start.start()]
     return text.strip()
-
 
 def extract(result_text: str) -> AgentReport:
     blocks = _BLOCK.findall(result_text or "")

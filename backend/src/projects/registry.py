@@ -1,9 +1,4 @@
-"""서버에서 사용할 프로젝트 목록과 에이전트 대화 정보를 저장합니다.
-
-앱이 실제 폴더 경로를 마음대로 보내지 못하게 하고, 미리 등록한 프로젝트 ID만 받습니다.
-덕분에 백엔드가 허용하지 않은 폴더를 읽거나 수정하는 일을 막을 수 있습니다.
-"""
-
+"""서버에서 사용할 프로젝트 목록과 에이전트 대화 정보 저장"""
 from __future__ import annotations
 
 import json
@@ -25,7 +20,6 @@ _IGNORED_DIRECTORIES = {
     "node_modules",
     "venv",
 }
-
 
 class Project(BaseModel):
     project_id: str = Field(alias="projectId")
@@ -56,21 +50,15 @@ class Project(BaseModel):
         """Git 저장소인지. 아니면 작업을 실행하지 않는다."""
         return (self.repo_path / ".git").exists()
 
-
 class UnknownProjectError(LookupError):
     pass
-
 
 class DuplicateProjectError(ValueError):
     pass
 
-
 class ProjectRegistry:
-    """프로젝트 ID로 실제 폴더와 실행 설정을 찾을 수 있게 관리합니다.
-
-    설정 파일에 직접 적은 프로젝트와 작업 폴더에서 자동으로 찾은 프로젝트를 합칩니다.
-    둘이 겹치면 사용자가 직접 적은 설정을 따르고 에이전트와 대화 선택도 같이 저장합니다.
-    """
+    """프로젝트 ID로 실제 폴더와 실행 설정을 찾을 수 있게 관리
+    설정 파일에 직접 적은 프로젝트와 작업 폴더에서 자동으로 찾은 프로젝트를 합치기. 둘이 겹치면 사용자가 직접 적은 설정을 따르고 에이전트와 대화 선택도 같이 저장"""
     def __init__(
         self,
         projects: list[Project],
@@ -90,7 +78,6 @@ class ProjectRegistry:
     def load(
         cls, path: Path, workspace_root: Path | None = None
     ) -> ProjectRegistry:
-        """선택 설정과 작업 루트의 Git 저장소를 하나의 목록으로 합친다."""
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         configured = data.get("projects", [])
         discovered = cls._discover(workspace_root)
@@ -106,15 +93,12 @@ class ProjectRegistry:
                     configured_item.get("projectId")
                 )
                 if discovered_project is None:
-                    # 경로 없는 설정은 작업 루트에서 실제 저장소가
-                    # 발견될 때만 유효하다.
                     continue
                 payload = discovered_project.model_dump(by_alias=True, mode="json")
                 payload.update(configured_item)
                 payload["repoPath"] = discovered_project.repo_path
                 project = Project.model_validate(payload)
             else:
-                # 기존 절대 경로 설정도 호환성을 위해 계속 지원한다.
                 project = Project.model_validate(configured_item)
             projects.append(project)
             claimed_paths.add(project.repo_path.expanduser().resolve())
@@ -135,7 +119,7 @@ class ProjectRegistry:
 
     @classmethod
     def _discover(cls, workspace_root: Path | None) -> list[Project]:
-        """BRIDGE_WORKSPACE_ROOT 아래의 Git 저장소를 프로젝트로 자동 등록한다."""
+        """BRIDGE_WORKSPACE_ROOT 아래의 Git 저장소를 프로젝트로 자동 등록"""
         if workspace_root is None:
             return []
         root = workspace_root.expanduser().resolve()
@@ -148,8 +132,6 @@ class ProjectRegistry:
             current_path = Path(current)
             if ".git" in directories or ".git" in files:
                 repositories.append(current_path)
-                # 한 Git 저장소 내부의 의존성·서브모듈까지 별도
-                # Vibex 프로젝트로 세지 않는다.
                 directories[:] = []
                 continue
             directories[:] = [
@@ -184,7 +166,6 @@ class ProjectRegistry:
         return [project for project in self._by_id.values() if project.enabled]
 
     def resolve(self, project_id: str) -> Project:
-        """projectId → 신뢰할 수 있는 Project. 이 함수만 repoPath를 만든다."""
         project = self._by_id.get(project_id)
         if project is None or not project.enabled:
             raise UnknownProjectError(project_id)
@@ -216,7 +197,7 @@ class ProjectRegistry:
     def set_agent_session(
         self, project_id: str, agent: str, session_id: str
     ) -> Project:
-        """한 VIBEX 프로젝트 대화와 에이전트별 실제 세션을 연결한다."""
+        """한 Vibex 프로젝트 대화와 LLM 별 세션을 연결"""
         project = self.resolve(project_id)
         sessions = dict(project.agent_sessions)
         sessions[agent] = session_id
@@ -247,8 +228,6 @@ class ProjectRegistry:
         if self._workspace_root is not None:
             resolved = project.repo_path.expanduser().resolve()
             if resolved.is_relative_to(self._workspace_root):
-                # 경로는 작업 루트에서 재발견할 수 있으므로 중복
-                # 저장하지 않고 프로젝트별 설정만 남긴다.
                 configured.pop("repoPath", None)
         self._configured_projects.append(configured)
         self._save()

@@ -1,6 +1,4 @@
-// 서버 연결 설정부터 프로젝트와 대화 선택, 작업 결과 확인까지 앱의 기본 흐름을 구성합니다.
-// 여러 화면에서 함께 쓰는 프로젝트 목록과 BridgeClient도 AppModel이 여기서 관리합니다.
-
+// 서버 연결 설정부터 프로젝트와 대화 선택, 작업 결과 확인까지의 기본 흐름 구성
 import SwiftUI
 
 extension TaskCreated: Identifiable {
@@ -11,9 +9,7 @@ extension TaskView: Identifiable {
     var id: String { taskId }
 }
 
-/// 프로젝트와 에이전트 목록처럼 여러 화면에서 함께 쓰는 데이터를 관리합니다.
-/// 서버 요청은 메인 스레드를 막지 않도록 비동기로 실행하고, 화면에 반영하는 값만
-/// MainActor에서 변경합니다.
+/// 프로젝트와 에이전트 목록처럼 여러 화면에서 함께 쓰는 데이터를 관리
 @MainActor
 final class AppModel: ObservableObject {
     @Published var projects: [ProjectView] = []
@@ -63,7 +59,7 @@ final class AppModel: ObservableObject {
 
 // MARK: - 루트
 
-/// 서버 연결 여부에 따라 설정 화면이나 프로젝트 화면 중 알맞은 화면을 보여 줍니다.
+/// 서버 연결 여부에 따라 설정 화면이나 프로젝트 화면 중 알맞은 화면만 시각화
 struct RootView: View {
     @StateObject private var model = AppModel()
     @State private var showSettings = false
@@ -302,13 +298,10 @@ struct SettingsView: View {
 
         var urls = knownBridgeURLs.compactMap(normalizedBridgeURL)
         if let selected = normalizedBridgeURL(selectedBridgeURL) { urls.append(selected) }
-        // 시뮬레이터도 로컬 Bridge를 discovery 기준점으로 사용한다. 이전에는
-        // 여기서 즉시 반환하여 온라인 PC 목록이 절대로 표시되지 않았다.
         if let connectionURL { urls.append(connectionURL) }
         urls = unique(urls)
 
-        // 기억된 PC 중 하나만 살아 있어도 그 Bridge를 통해 현재 온라인인
-        // tailnet PC 후보를 받아온다. 이후 각 후보의 VIBEX health를 직접 검증한다.
+        // 이전에 연결한 PC 중 하나만 있어도 그 Bridge를 통해 현재 온라인인 tailnet PC 후보를 받아옴
         var discoverySource: URL?
         var online: [AvailableBridge] = []
         for url in urls {
@@ -537,7 +530,7 @@ struct ProjectListView: View {
     }
 }
 
-// MARK: - VIBEX 공용 대화
+// MARK: - 공통 대화
 
 struct ConversationListView: View {
     @ObservedObject var model: AppModel
@@ -621,7 +614,6 @@ struct ConversationListView: View {
         defer { loading = false }
         do {
             let created = try await model.client.createConversation(projectId: project.projectId)
-            // 구버전의 프로젝트 공용 캔버스를 새 대화로 잘못 복사하지 않는다.
             UserDefaults.standard.set(true, forKey: blueprintMigrationKey)
             conversations.insert(created, at: 0)
             createdConversation = created
@@ -660,7 +652,7 @@ struct ConversationListView: View {
         let destinationKey = "vibex.project-blueprint.\(project.projectId).\(conversation.conversationId)"
         if defaults.data(forKey: destinationKey) == nil,
            let legacyData = defaults.data(forKey: legacyKey) {
-            // 기존 공용 드로잉은 가장 최근 대화 한 곳에만 보존한다.
+            // 기존 공용 드로잉은 가장 최근 대화 한 곳에만 보존
             defaults.set(legacyData, forKey: destinationKey)
         }
         defaults.set(true, forKey: blueprintMigrationKey)
@@ -796,8 +788,6 @@ struct ConversationDetailView: View {
         }
     }
 }
-
-// MARK: - PC 라이브 프론트엔드 → 캔버스
 
 struct ComposeView: View {
     @ObservedObject var model: AppModel
@@ -944,7 +934,7 @@ struct TaskStatusView: View {
         }
     }
 
-    // 끝날 때까지 폴링.
+    // 끝날 때까지 폴링
     private func poll() async {
         while !Task.isCancelled {
             do {
@@ -959,7 +949,7 @@ struct TaskStatusView: View {
         }
     }
 
-    // 답 보내고 다시 폴링.
+    // 답 보내고 다시 폴링
     private func act(_ work: @escaping () async throws -> Void) {
         Task {
             do { try await work(); await poll() }

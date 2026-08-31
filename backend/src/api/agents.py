@@ -1,5 +1,4 @@
-"""현재 컴퓨터에서 쓸 수 있는 에이전트와 선택 가능한 옵션을 알려 주는 API입니다."""
-
+"""PC에서 사용할 수 있는 LLM 옵션을 알려 주는 API"""
 from __future__ import annotations
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -22,7 +21,6 @@ class AgentView(BaseModel):
     speed_modes: list["AgentOption"] = Field(default_factory=list, alias="speedModes")
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
-
 
 class AgentOption(BaseModel):
     value: str

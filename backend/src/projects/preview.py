@@ -1,9 +1,4 @@
-"""프로젝트에서 화면을 띄울 방법을 찾아 미리보기 서버를 실행합니다.
-
-따로 정한 실행 명령이 있으면 그 명령을 쓰고, 없으면 package.json이나 index.html을
-찾아 실행 방법을 정합니다. 프로세스만 켜졌다고 성공으로 보지 않고 실제 접속까지 확인합니다.
-"""
-
+"""프로젝트에서 프론트엔드를 띄울 방법을 탐색해 미리보기 서버를 실행"""
 from __future__ import annotations
 
 import asyncio
@@ -22,14 +17,11 @@ from src.projects.registry import Project
 
 logger = logging.getLogger("bridge.preview")
 
-
 class PreviewUnavailableError(RuntimeError):
     pass
 
-
 class PreviewStartError(RuntimeError):
     pass
-
 
 @dataclass
 class PreviewSession:
@@ -38,12 +30,10 @@ class PreviewSession:
     process: asyncio.subprocess.Process | None
     log_file: BinaryIO | None = None
 
-
 @dataclass(frozen=True)
 class PreviewLaunch:
     command: list[str]
     cwd: Path
-
 
 def _log_tail(log_file: BinaryIO, limit: int = 2_000) -> str:
     try:
@@ -55,11 +45,9 @@ def _log_tail(log_file: BinaryIO, limit: int = 2_000) -> str:
     except (OSError, ValueError):
         return ""
 
-
 def _with_log(message: str, log_file: BinaryIO) -> str:
     tail = _log_tail(log_file)
     return f"{message}\n\n실행 로그:\n{tail}" if tail else message
-
 
 def _package_json(path: Path) -> dict:
     try:
@@ -67,7 +55,6 @@ def _package_json(path: Path) -> dict:
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
-
 
 _IGNORED_FRONTEND_DIRECTORIES = {
     ".git",
@@ -82,14 +69,9 @@ _IGNORED_FRONTEND_DIRECTORIES = {
 _PREFERRED_FRONTEND_DIRECTORIES = {"frontend", "web", "client", "app", "site"}
 _MAX_FRONTEND_DEPTH = 5
 
-
 def _frontend_directories(project: Project) -> list[Path]:
-    """실행 가능한 프론트엔드가 있을 법한 폴더를 얕은 순서로 찾는다.
-
-    LLM이 프로젝트 루트가 아닌 ``frontend/``나 ``web/`` 아래에 결과물을
-    만들 수 있으므로 루트만 검사하지 않는다. 의존성·빌드 폴더는 제외하고
-    탐색 깊이를 제한해 큰 저장소에서도 시작 요청이 느려지지 않게 한다.
-    """
+    """실행 가능한 프론트엔드가 있을 법한 폴더 순서로 탐색
+    LLM이 프로젝트 루트가 아닌 frontend/나 web/ 아래에 결과물을 만들 수 있으므로 루트만 검사하지 않음"""
     root = project.repo_path.resolve()
     candidates: list[Path] = []
     for current, directories, files in os.walk(root):
@@ -112,7 +94,6 @@ def _frontend_directories(project: Project) -> list[Path]:
         return (len(parts), preferred, str(relative))
 
     return sorted(candidates, key=priority)
-
 
 def _package_launch(directory: Path, port: int) -> PreviewLaunch | None:
     package = _package_json(directory / "package.json")
@@ -151,13 +132,9 @@ def _package_launch(directory: Path, port: int) -> PreviewLaunch | None:
 
 
 def _dependency_install_command(launch: PreviewLaunch) -> list[str] | None:
-    """패키지 실행인데 로컬 의존성이 아직 없으면 설치 명령을 돌려준다.
-
-    새 프로젝트는 LLM이 package.json까지만 만든 직후 iPad가 프리뷰를
-    요청하는 경우가 많다. 이때 npm script는 발견되지만 ``vite`` 같은 로컬
-    실행 파일이 없어 코드 127로 끝난다. 프리뷰가 선택한 실제 frontend
-    디렉터리에서 한 번 설치하면 이후 요청은 기존 node_modules를 재사용한다.
-    """
+    """패키지 실행인데 의존성이 아직 없으면 설치 명령
+    새 프로젝트는 LLM이 package.json까지만 만든 직후 iPad가 프리뷰를 요청하는 경우가 있음 -> vite 같은 PC의 실행 파일이 없을 때 실패할 가능성
+    프론트엔드 프리뷰가 선택한 frontend 디렉터리에 한 번 설치하면 이후 요청은 기존 node_modules를 재사용"""
     if not launch.command or launch.command[0] not in {"npm", "pnpm", "yarn"}:
         return None
     if not (launch.cwd / "package.json").is_file():
@@ -172,18 +149,17 @@ def _dependency_install_command(launch: PreviewLaunch) -> list[str] | None:
         return ["pnpm", "install", "--no-frozen-lockfile"]
     return ["yarn", "install"]
 
-
 def _auto_launch(project: Project, port: int) -> PreviewLaunch | None:
     directories = _frontend_directories(project)
 
-    # 실행 스크립트가 있는 앱을 정적 HTML보다 우선한다.
+    # 실행 스크립트가 있는 앱을 정적 HTML보다 우선
     for directory in directories:
         if (directory / "package.json").is_file():
             launch = _package_launch(directory, port)
             if launch is not None:
                 return launch
 
-    # package.json 없는 LLM 생성 결과도 즉시 프리뷰한다.
+    # package.json 없는 LLM 생성 결과도 즉시 프리뷰
     for directory in directories:
         if (directory / "index.html").is_file():
             return PreviewLaunch(
@@ -199,7 +175,6 @@ def _auto_launch(project: Project, port: int) -> PreviewLaunch | None:
             )
     return None
 
-
 def _configured_launch(project: Project, port: int) -> PreviewLaunch | None:
     if not project.preview_command:
         return None
@@ -211,12 +186,10 @@ def _configured_launch(project: Project, port: int) -> PreviewLaunch | None:
         project.repo_path,
     )
 
-
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
-
 
 async def _accepting(port: int) -> bool:
     try:
@@ -227,33 +200,21 @@ async def _accepting(port: int) -> bool:
     except OSError:
         return False
 
-
 def public_url(host: str, port: int) -> str:
     netloc = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     return urlunsplit(("http", netloc, "/", "", ""))
 
-
 def vite_allowed_host(public_host: str) -> str:
-    """Vite가 허용할 현재 tailnet 호스트 범위를 계산한다.
-
-    MagicDNS FQDN은 ``machine.tailnet.ts.net`` 형태다. 머신 이름을 하나씩
-    박아두지 않고 현재 tailnet suffix만 허용하면 PC 이름이 바뀌거나 다른
-    VIBEX PC를 선택해도 프로젝트 설정을 수정할 필요가 없다.
-    """
+    """Vite가 허용할 현재 tailnet 호스트 범위를 계산"""
     host = public_host.strip().strip("[]").rstrip(".").lower()
     labels = host.split(".")
     if len(labels) >= 3 and labels[-2:] == ["ts", "net"]:
         return "." + ".".join(labels[1:])
     return host
 
-
 class PreviewManager:
-    """프로젝트마다 미리보기 서버가 하나만 실행되도록 관리합니다.
-
-    시작과 종료 요청이 동시에 들어와도 순서대로 처리한다. 서버가 제한 시간 안에 접속을
-    받지 못하면 실패 로그를 남기고 방금 만든 프로세스도 종료합니다.
-    """
-
+    """프로젝트마다 미리보기 서버가 하나만 실행되도록 관리
+    시작과 종료 요청이 동시에 들어와도 순서대로 처리 서버가 제한 시간 안에 접속을 받지 못하면 실패 로그를 남기고 방금 만든 프로세스도 종료"""
     def __init__(self, *, start_timeout: float = 180.0) -> None:
         self._start_timeout = start_timeout
         self._sessions: dict[str, PreviewSession] = {}
@@ -299,8 +260,6 @@ class PreviewManager:
                 "HOST": "0.0.0.0",
                 "PORT": str(port),
                 "BROWSER": "none",
-                # Vite 5+의 공식 추가 호스트 통로. 프로젝트의 vite.config를
-                # 건드리지 않고 현재 tailnet의 모든 MagicDNS PC 이름을 허용한다.
                 "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": vite_allowed_host(public_host),
             })
             log_file = tempfile.TemporaryFile(mode="w+b")
@@ -341,8 +300,6 @@ class PreviewManager:
                                 log_file,
                             )
                         )
-                    # 설치 로그와 실제 dev server 로그를 구분하고, 실패 화면에는
-                    # 현재 실행에서 필요한 마지막 부분만 보여준다.
                     log_file.seek(0)
                     log_file.truncate(0)
                 except PreviewStartError:

@@ -1,9 +1,5 @@
-"""에이전트 작업을 만들고 조회하거나 취소하는 API입니다.
-
-이미지와 파일 경로가 안전한지 먼저 확인한 다음 작업을 저장하고 백그라운드에서 실행합니다.
-같은 요청이 다시 들어오거나 프로젝트가 이미 작업 중인 경우도 앱이 구분할 수 있게 알려 줍니다.
-"""
-
+"""에이전트 작업을 만들고 조회하거나 취소하는 API. 이미지와 파일 경로가 안전한지 확인한 다음 작업을 저장하고 백그라운드에서 실행
+같은 요청이 다시 들어오거나 프로젝트가 이미 작업 중인 경우에는 앱이 구분할 수 있게 공지"""
 from __future__ import annotations
 import asyncio
 import base64
@@ -114,7 +110,6 @@ def _spawn(
                     request.app.state.tasks.bind_agent_session(
                         completed.conversation_id, agent_id, bound
                     )
-                # 구버전 클라이언트의 프로젝트 단위 자동 재개도 계속 동작한다.
                 request.app.state.registry.set_agent_session(
                     project.project_id, agent_id, bound
                 )
@@ -163,7 +158,7 @@ async def _read_image(upload: UploadFile, limit: int, label: str) -> bytes:
     data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail=f"{label}: 빈 이미지입니다.")
-    if len(data) > limit:  # §18.7 이미지 크기 제한
+    if len(data) > limit:
         raise HTTPException(
             status_code=413,
             detail=f"{label}: 이미지가 너무 큽니다({len(data) // 1024}KB).",
@@ -289,7 +284,6 @@ async def create_task(
     referenceImage: list[UploadFile] = File(default=[]),
     canvasImage: UploadFile | None = None,
     renderedViewImage: UploadFile | None = None,
-    # 이전 iPad 빌드와 한시 호환. 새 앱은 renderedViewImage를 보낸다.
     baseImage: UploadFile | None = None,
 ) -> TaskCreated:
     project = _project(request, projectId)
@@ -313,8 +307,7 @@ async def create_task(
             detail="명시적인 네이티브 대화 선택은 현재 Codex App Server에서만 지원합니다.",
         )
     if conversation is not None:
-        # 공용 대화 안에서는 모델마다 자기 네이티브 세션만 이어 쓴다. 다른
-        # 모델의 이력을 네이티브 세션에 주입하지 않는다.
+        # 공용 대화 안에서는 모델마다 본인 세션만 이어 쓰고, 모델의 이력을 네이티브 세션에 주입하지 않음
         normalized_thread_id = conversation.agent_sessions.get(selected_agent)
         threadMode = "auto" if normalized_thread_id else "new"
     elif threadMode == "auto" and normalized_thread_id is None:
@@ -380,7 +373,6 @@ async def create_task(
             conversationId=existing.conversation_id,
         )
 
-    # 지원되지 않는 CLI라면 lock을 잡기 전에 거절한다.
     _adapter_for(request, execution_project)
 
     try:
@@ -556,7 +548,6 @@ async def create_task(
         conversationId=task.conversation_id,
     )
 
-
 class TaskListResponse(BaseModel):
     tasks: list[Task]
 
@@ -579,14 +570,12 @@ def list_tasks(
         recent = request.app.state.tasks.recent(projectId, limit=max(1, min(limit, 100)))
     return TaskListResponse(tasks=list(reversed(recent)))
 
-
 @router.get("/{task_id}", response_model=Task)
 def get_task(task_id: str, request: Request) -> Task:
     task = request.app.state.tasks.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return task
-
 
 @router.get("/{task_id}/attachments/{name}")
 def get_attachment(task_id: str, name: str, request: Request) -> FileResponse:
@@ -599,7 +588,6 @@ def get_attachment(task_id: str, name: str, request: Request) -> FileResponse:
         raise HTTPException(status_code=404, detail="첨부 이미지를 찾을 수 없습니다.")
     return FileResponse(path, media_type=attachment.content_type)
 
-
 class ReviewFile(BaseModel):
     path: str
     absolute_path: str | None = Field(default=None, alias="absolutePath")
@@ -608,11 +596,9 @@ class ReviewFile(BaseModel):
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
-
 class TaskReview(BaseModel):
     patch: str
     files: list[ReviewFile]
-
 
 class TaskReviewFile(BaseModel):
     path: str
@@ -626,7 +612,6 @@ class TaskReviewFile(BaseModel):
     encoding: Literal["utf-8", "base64"] = "utf-8"
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
-
 
 @router.get("/{task_id}/review", response_model=TaskReview)
 def review_task(task_id: str, request: Request) -> TaskReview:
@@ -652,7 +637,6 @@ def review_task(task_id: str, request: Request) -> TaskReview:
         )
     return TaskReview(patch=patch, files=files)
 
-
 def _binary(data: bytes | None) -> bool:
     if data is None:
         return False
@@ -664,14 +648,12 @@ def _binary(data: bytes | None) -> bool:
         return True
     return False
 
-
 def _review_content(data: bytes | None, *, binary: bool) -> str | None:
     if data is None:
         return None
     if binary:
         return base64.b64encode(data).decode("ascii")
     return data.decode("utf-8")
-
 
 @router.get("/{task_id}/review/file", response_model=TaskReviewFile)
 def review_task_file(task_id: str, path: str, request: Request) -> TaskReviewFile:
@@ -712,7 +694,6 @@ def review_task_file(task_id: str, path: str, request: Request) -> TaskReviewFil
         encoding="base64" if is_binary else "utf-8",
     )
 
-
 @router.post("/{task_id}/undo", response_model=Task)
 def undo_task(task_id: str, request: Request) -> Task:
     store = request.app.state.tasks
@@ -736,14 +717,12 @@ def undo_task(task_id: str, request: Request) -> Task:
         ) from exc
     return store.update(task_id, undone=True)
 
-
 class AnswerRequest(BaseModel):
     question_id: str = Field(alias="questionId")
     selected_option_id: str | None = Field(default=None, alias="selectedOptionId")
     free_text: str | None = Field(default=None, alias="freeText")
 
     model_config = {"populate_by_name": True}
-
 
 @router.post("/{task_id}/answer", response_model=TaskCreated)
 async def answer(task_id: str, body: AnswerRequest, request: Request) -> TaskCreated:
@@ -788,7 +767,6 @@ async def answer(task_id: str, body: AnswerRequest, request: Request) -> TaskCre
             ),
         ],
     )
-    # 되물은 그 세션에 답해야 한다. 다시 찾으면 엉뚱한 대화로 갈 수 있다.
     run_project = project.model_copy(update={"agent": task.agent_id or project.agent})
     _spawn(
         request, task_id, run_project, build_answer(question.text, label),
@@ -804,15 +782,8 @@ async def answer(task_id: str, body: AnswerRequest, request: Request) -> TaskCre
         conversationId=task.conversation_id,
     )
 
-
 @router.post("/{task_id}/regenerate", response_model=TaskCreated, status_code=202)
 async def regenerate(task_id: str, request: Request) -> TaskCreated:
-    """같은 로컬 세션에서 직전 요청을 다시 수행한다.
-
-    별도의 가짜 UI 동작이 아니라 새 Task/turn을 만들고 동일 thread를 정확히
-    재개한다. 시각 요청의 이미지도 이전 thread context에 남아 있으므로 재업로드
-    없이 같은 요청을 다시 판단할 수 있다.
-    """
     store = request.app.state.tasks
     original = store.get(task_id)
     if original is None:
@@ -891,9 +862,7 @@ async def cancel(task_id: str, request: Request) -> Task:
     running: asyncio.Task | None = request.app.state.running.get(task_id)
     if running is not None and not running.done():
         running.cancel()
-        # adapter의 subprocess finally가 끝날 때까지 프로젝트 lock을 유지한다.
-        # 먼저 CANCELLED로 바꾸면 종료 중인 프로세스와 새 작업이 동시에 파일을
-        # 수정할 수 있다.
+        # adapter의 subprocess finally가 끝날 때까지 프로젝트 락을 유지
         try:
             await running
         except asyncio.CancelledError:

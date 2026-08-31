@@ -1,6 +1,4 @@
-# Claude Code 이외의 다른 LLM에 연결
-"""현재 사용할 수 있는 에이전트를 찾고 알맞은 어댑터를 만들어 줍니다."""
-
+"""사용 가능한 에이전트를 찾고 알맞은 어댑터를 만들어 줌"""
 from __future__ import annotations
 import shutil
 from dataclasses import dataclass
@@ -8,15 +6,12 @@ from src.agents.base import AgentAdapter
 from src.agents.claude_code import ClaudeCodeAdapter
 from src.agents.codex_cli import CodexCLIAdapter
 
-
 @dataclass(frozen=True)
 class AgentInfo:
     agent_id: str
     display_name: str
     binary: str
-    #: 이 저장소에서 실측 검증을 마쳤는가.
     verified: bool
-    #: 실제로 이 기기에 설치되어 있는가.
     installed: bool
     note: str = ""
     models: tuple[tuple[str, str], ...] = ()

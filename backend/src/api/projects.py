@@ -1,9 +1,4 @@
-"""프로젝트 목록과 Codex 대화 기록, 미리보기 서버를 다루는 API입니다.
-
-실제 폴더 경로는 앱에 보내지 않고 프로젝트 ID만 사용한다. Codex 대화를 읽거나 바꾸기
-전에는 현재 프로젝트에서 만든 대화가 맞는지도 확인합니다.
-"""
-
+"""프로젝트 목록과 Codex 대화 기록, 미리보기 서버를 다루는 API. 대화를 읽거나 바꾸기 전에는 현재 프로젝트에서 만든 대화가 맞는지도 확인"""
 from __future__ import annotations
 from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
@@ -84,7 +79,7 @@ def list_projects(request: Request) -> ProjectListResponse:
         projects=[_view(p, request) for p in registry.list_enabled()])
 
 class CreateProjectRequest(BaseModel):
-    # iPad가 프로젝트 이름을 보내면, PC에서는 작업 경로의 절대주소와 결합하고 비교
+    # iPad가 프로젝트 이름을 보내면 PC에서는 작업 경로의 절대주소와 결합하고 비교
     display_name: str = Field(alias="displayName", min_length=1, max_length=80)
     agent: str = "claude-code"
     test_commands: list[str] = Field(default_factory=list, alias="testCommands")
@@ -125,17 +120,14 @@ def get_project(project_id: str, request: Request) -> ProjectView:
     try:
         project = request.app.state.registry.resolve(project_id)
     except UnknownProjectError:
-        # §20 Unknown Project — 등록 여부를 넘어선 정보는 주지 않는다.
         raise HTTPException(
             status_code=404,
             detail="선택한 프로젝트가 iMac에 등록되어 있지 않습니다.",
         ) from None
     return _view(project, request)
 
-
 class UpdateProjectRequest(BaseModel):
     agent: str
-
 
 @router.patch("/{project_id}", response_model=ProjectView)
 def update_project(
@@ -284,7 +276,6 @@ async def get_project_thread(
         turns=[item for item in raw.get("turns", []) if isinstance(item, dict)],
     )
 
-
 @router.patch("/{project_id}/threads/{thread_id}", status_code=204)
 async def rename_project_thread(
     project_id: str,
@@ -301,7 +292,6 @@ async def rename_project_thread(
         raise _thread_error(exc) from exc
     return Response(status_code=204)
 
-
 @router.post("/{project_id}/threads/{thread_id}/archive", status_code=204)
 async def archive_project_thread(
     project_id: str, thread_id: str, request: Request
@@ -315,7 +305,6 @@ async def archive_project_thread(
         raise _thread_error(exc) from exc
     return Response(status_code=204)
 
-
 def _project_for_threads(request: Request, project_id: str) -> Project:
     try:
         project = request.app.state.registry.resolve(project_id)
@@ -325,13 +314,11 @@ def _project_for_threads(request: Request, project_id: str) -> Project:
         raise HTTPException(status_code=409, detail="실행 가능한 Git 프로젝트가 아닙니다.")
     return project
 
-
 class PreviewView(BaseModel):
     project_id: str = Field(alias="projectId")
     url: str
     port: int
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
-
 
 @router.post("/{project_id}/preview", response_model=PreviewView)
 async def start_preview(project_id: str, request: Request) -> PreviewView:
@@ -342,13 +329,10 @@ async def start_preview(project_id: str, request: Request) -> PreviewView:
     if not project.exists or not project.is_git_repo:
         raise HTTPException(status_code=409, detail="실행 가능한 Git 프로젝트가 아닙니다.")
 
-    # Tailscale Serve를 통해 들어온 물리 iPad에는 고정 MagicDNS 호스트를,
-    # 로컬 시뮬레이터/VS Code에는 요청의 localhost를 돌려준다.
+    # Tailscale Serve를 통해 들어온 iPad 앱에는 MagicDNS 호스트를, 시뮬레이터/VS Code에는 요청의 localhost를 사용
     configured_host = request.app.state.settings.preview_public_host.strip()
     tailscale_login = request.headers.get("tailscale-user-login", "").strip()
     requested_host = request.url.hostname
-    # 짧은 MagicDNS 이름으로 Bridge에 접속해도 프리뷰는 정식 FQDN을 쓴다.
-    # 그래야 Vite에 자동 전달한 tailnet suffix 허용값과 Host가 일치한다.
     canonical_tailscale_host = (
         tailscale_self_dns_name()
         if requested_host not in {None, "127.0.0.1", "localhost", "testserver"}
@@ -372,7 +356,6 @@ async def start_preview(project_id: str, request: Request) -> PreviewView:
         url=public_url(host, session.port),
         port=session.port,
     )
-
 
 @router.delete("/{project_id}/preview", status_code=204)
 async def stop_preview(project_id: str, request: Request) -> None:

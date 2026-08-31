@@ -1,4 +1,3 @@
-# CLAUDE.md §18 — 비밀키와 로컬 설정은 저장소에 넣지 않는다
 .env
 projects.local.json
 conversations.local.json
@@ -21,16 +20,16 @@ ipad-app/**/DerivedData/
 # macOS
 .DS_Store
 
-# Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋한다)
+# Xcode 사용자별 상태 (프로젝트 파일 자체는 커밋)
 *.xcworkspace/xcuserdata/
 ipad-app/**/xcuserdata/
 
 # 백엔드 로컬 백업
 backend/.env.bak.*
 backend/projects.local.json.bak
-backend/tests/
+backend/tests
 
-# 머신별 로컬 설정 (scripts/setup.sh 가 생성)
+# 기기 별 로컬 설정 (scripts/setup.sh 가 생성)
 ipad-app/Local.xcconfig
 
 /test-projects/

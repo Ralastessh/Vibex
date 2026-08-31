@@ -1,5 +1,4 @@
-"""VIBEX 대화를 만들고, 이름을 바꾸고, 보관하거나 삭제하는 API입니다."""
-
+"""Vibex 대화를 생성하고 보관하거나 삭제하는 API"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,13 +9,11 @@ from src.projects.registry import UnknownProjectError
 from src.tasks.store import ProjectBusyError
 from src.tasks.models import Conversation, Task
 
-
 router = APIRouter(
     prefix="/projects/{project_id}/conversations",
     tags=["conversations"],
     dependencies=[RequireDevice],
 )
-
 
 def _project(request: Request, project_id: str):
     try:
@@ -24,23 +21,18 @@ def _project(request: Request, project_id: str):
     except UnknownProjectError:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.") from None
 
-
 class ConversationCreate(BaseModel):
     title: str = "새 대화"
-
 
 class ConversationUpdate(BaseModel):
     title: str
 
-
 class ConversationList(BaseModel):
     conversations: list[Conversation]
-
 
 class ConversationDetail(BaseModel):
     conversation: Conversation
     tasks: list[Task]
-
 
 @router.get("", response_model=ConversationList)
 def list_conversations(project_id: str, request: Request) -> ConversationList:
@@ -49,14 +41,12 @@ def list_conversations(project_id: str, request: Request) -> ConversationList:
         conversations=request.app.state.tasks.conversations(project_id)
     )
 
-
 @router.post("", response_model=Conversation, status_code=201)
 def create_conversation(
     project_id: str, body: ConversationCreate, request: Request
 ) -> Conversation:
     _project(request, project_id)
     return request.app.state.tasks.create_conversation(project_id, body.title)
-
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
 def get_conversation(
@@ -76,7 +66,6 @@ def get_conversation(
         tasks=list(reversed(tasks)),
     )
 
-
 @router.patch("/{conversation_id}", response_model=Conversation)
 def rename_conversation(
     project_id: str,
@@ -92,7 +81,6 @@ def rename_conversation(
     except LookupError:
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.") from None
 
-
 @router.post("/{conversation_id}/archive", response_model=Conversation)
 def archive_conversation(
     project_id: str, conversation_id: str, request: Request
@@ -104,7 +92,6 @@ def archive_conversation(
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.") from None
-
 
 @router.delete("/{conversation_id}", response_model=Conversation)
 def delete_conversation(

@@ -144,7 +144,7 @@ function extractCodiconGlyphs(workbenchJsPath) {
     glyphs.set(match[2], Number(match[3]));
     byProperty.set(match[1], Number(match[3]));
   }
-  // Derived icons (e.g. chat-model-provider-generic → sparkle) are registered
+  // Derived icons (e.g. chat-model-provider-generic -> sparkle) are registered
   // at runtime as aliases of a base codicon; resolve them to the base glyph.
   const aliasPattern = /\("((?:chat|copilot|terminal|debug)[\w-]*)",\s*[\w$]+\.(\w+)\s*,/g;
   while ((match = aliasPattern.exec(js))) {

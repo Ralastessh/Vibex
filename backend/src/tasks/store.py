@@ -60,9 +60,9 @@ class TaskStore:
         self._tasks: dict[str, Task] = {}
         #: conversation_id -> VIBEX 공용 대화 메타데이터.
         self._conversations: dict[str, Conversation] = {}
-        #: project_id -> task_id. **이 딕셔너리가 프로젝트 lock 그 자체다**(§15).
+        #: project_id -> task_id. **이 딕셔너리가 프로젝트 lock 그 자체**.
         self._active: dict[str, str] = {}
-        #: (project_id, client_task_id) -> task_id. 재전송 중복 방지(§12.3).
+        #: (project_id, client_task_id) -> task_id. 재전송 중복 방지
         self._by_client: dict[tuple[str, str], str] = {}
         self._review_patches: dict[str, str] = {}
         #: task_id -> (작업 직전 Git tree, 작업 직후 Git tree)

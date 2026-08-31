@@ -1,9 +1,5 @@
-"""Codex app-server를 백엔드에서 편하게 쓸 수 있도록 감싼 코드입니다.
-
-대화 기록을 찾고, 선택한 대화가 현재 프로젝트의 것인지 확인한다. 실행 중 계속 들어오는
-진행 메시지는 화면에 보내기 좋은 형태로 모아서 전달합니다.
-"""
-
+"""Codex app-server를 백엔드에서 편하게 쓸 수 있도록 래핑
+대화 내역을 찾고, 선택한 대화가 현재 프로젝트의 것인지 확인하기 + 실행 중 들어오는 진행 메시지는 모아서 외부로 전달"""
 from __future__ import annotations
 
 import asyncio
@@ -27,10 +23,8 @@ logger = logging.getLogger("bridge.agents.codex")
 
 THREAD_SOURCE_KINDS = ["vscode", "cli", "appServer"]
 
-
 def sessions_root() -> Path:
     return Path.home() / ".codex" / "sessions"
-
 
 @dataclass(frozen=True)
 class CodexSession:
@@ -39,7 +33,6 @@ class CodexSession:
     source: str
     rollout_path: Path
     modified_at: float
-
 
 def _session_metadata(path: Path) -> CodexSession | None:
     try:
@@ -60,13 +53,11 @@ def _session_metadata(path: Path) -> CodexSession | None:
         return None
     return None
 
-
 class CodexThreadOutsideProjectError(LookupError):
-    """선택한 thread가 요청한 프로젝트 cwd에 속하지 않는다."""
-
+    """선택한 thread가 요청한 프로젝트 cwd에 속하지 않을 때"""
 
 def _text(value: Any) -> str:
-    """App Server의 문자열/배열 content를 사람이 읽을 수 있는 텍스트로 합친다."""
+    """App Server의 content를 텍스트로 변환"""
     if value is None:
         return ""
     if isinstance(value, str):
@@ -81,10 +72,8 @@ def _text(value: Any) -> str:
                     return rendered
     return ""
 
-
 class _ProgressCollector:
-    """App Server 알림을 Task가 보관할 누적 스냅샷으로 정규화한다."""
-
+    """App Server 알림을 Task가 보관할 누적 스냅샷으로 변환"""
     def __init__(self, callback: ProgressCallback | None) -> None:
         self._callback = callback
         self._messages: dict[str, str] = {}
@@ -253,12 +242,8 @@ class _ProgressCollector:
 
 
 class CodexCLIAdapter:
-    """VS Code나 CLI가 쓰는 Codex 대화 기록을 그대로 사용하는 어댑터입니다.
-
-    다른 프로젝트의 대화를 실수로 건드리지 않도록 읽기, 이름 변경, 보관 작업을 할 때마다
-    대화의 작업 폴더를 확인합니다. 실행 중 받은 메시지는 진행 상황과 최종 결과로 나눠 보냅니다.
-    """
-
+    """VS Code나 CLI가 쓰는 Codex 대화 기록을 사용하는 어뎁터.
+    프로젝트를 격리시켜 다른 채팅방을 건드리지 않아야 함 -> 읽기, 이름 변경, 보관 작업을 할 때마다 대화의 작업 폴더를 확인"""
     def __init__(self, binary: str = "codex", *, timeout_seconds: float = 1800) -> None:
         self._binary = binary
         self._timeout = timeout_seconds
@@ -284,14 +269,12 @@ class CodexCLIAdapter:
                     candidates.append(metadata)
             if not candidates:
                 return None
-            # 사용자가 PC로 돌아왔을 때 사이드바에서 그대로 이어갈 수 있도록
-            # VS Code가 만든 thread를 다른 interactive thread보다 먼저 선택한다.
+            # 사용자가 PC로 복귀할 때 바이브코딩을 지속할 수 있도록 VS Code thread를 다른 interactive thread보다 먼저 선택
             selected = max(
                 candidates,
                 key=lambda item: (item.source == "vscode", item.modified_at),
             )
             return selected.session_id
-
         return await asyncio.to_thread(scan)
 
     def _client(
@@ -353,8 +336,7 @@ class CodexCLIAdapter:
         data = result.get("data")
         if not isinstance(data, list):
             raise CodexAppServerError("thread/list 응답에 data 목록이 없습니다.")
-        # cwd 필터는 App Server에서도 걸지만 응답 경계에서 한 번 더
-        # 검증해 타 프로젝트 이력이 섞일 가능성을 막는다.
+        # App Server뿐만 아니라 별도 필터로 응답을 한 번 더 검증해 타 프로젝트 이력 섞임 방지
         filtered: list[dict[str, Any]] = []
         for item in data:
             if not isinstance(item, dict):
@@ -440,7 +422,7 @@ class CodexCLIAdapter:
         approval_mode: ApprovalMode = "default",
         on_progress: ProgressCallback | None = None,
     ) -> AgentRunResult:
-        del test_commands  # 허용 테스트 명령은 prompt에 포함된다.
+        del test_commands
         repo_path = repo_path.expanduser().resolve()
         progress = _ProgressCollector(on_progress)
         active_thread_id = session_id
@@ -449,8 +431,7 @@ class CodexCLIAdapter:
         approval = _approval_settings(approval_mode, repo_path)
 
         try:
-            # 작업마다 독립된 App Server transport를 사용하되, handshake와 JSONL
-            # 처리는 목록/읽기 API와 완전히 같은 client 구현을 공유한다.
+            # 작업마다 독립된 App Server transport를 사용하되, handshake와 JSONL 처리는 목록/읽기 API와 완전히 같은 client 구현을 공유
             async with self._client(repo_path, speed_mode=speed_mode) as client:
                 deadline = client.deadline()
                 if session_id:
